@@ -66,10 +66,41 @@ def prof_user():
 
 def prof_prod():
     df = get_prod()
-    print df
+    output_file = os.path.join(PROF_DIR, 'prof_product.txt')
+    with open(output_file, 'wb') as f:
+        orig_stdout = sys.stdout
+        sys.stdout = f
+
+        print '===== Check product data ====='
+
+        print '\n> Check sample records...'
+        print df.head(10)
+
+        print '\n> Count records...'
+        print len(df)
+
+        print '\n> Count unique sku_id...'
+        print len(df['sku_id'].unique())
+
+        print '\n> Count products by a1...'
+        print df['a1'].value_counts(dropna=False)
+
+        print '\n> Count products by a2...'
+        print df['a2'].value_counts(dropna=False)
+
+        print '\n> Count products by a3...'
+        print df['a3'].value_counts(dropna=False)
+
+        print '\n> Count products by category...'
+        print df['cate'].value_counts(dropna=False)
+
+        print '\n> Count products by brand...'
+        print df['brand'].value_counts(dropna=False)
+
+        sys.stdout = orig_stdout
 
 
 if __name__ == '__main__':
-    prof_user()
-    #prof_prod()
+    #prof_user()
+    prof_prod()
 
