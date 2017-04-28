@@ -13,6 +13,14 @@
 8  2016-02-01  100033            2                0            0.0000
 9  2016-02-01  100035            1                1            1.0000
 
+> Check column data type...
+dt                   object
+sku_id                int64
+comment_num           int64
+has_bad_comment       int64
+bad_comment_rate    float64
+dtype: object
+
 > Count records...
 558552
 

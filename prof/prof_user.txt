@@ -13,6 +13,14 @@
 8   200009   36-45��  2.0           2  2016-01-26
 9   200010   36-45��  2.0           3  2016-01-26
 
+> Check column data type...
+user_id          int64
+age             object
+sex            float64
+user_lv_cd       int64
+user_reg_tm     object
+dtype: object
+
 > Count records...
 105321
 

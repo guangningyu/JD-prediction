@@ -3,6 +3,7 @@
 
 import sys
 import os
+import glob
 import pandas as pd
 
 # ---------- directories definition ---------- #
@@ -22,6 +23,7 @@ PROF_DIR = get_dir('prof')
 USER_DATA = os.path.join(DATA_DIR, 'JData_User.csv')
 PROD_DATA = os.path.join(DATA_DIR, 'JData_Product.csv')
 COMMENT_DATA = os.path.join(DATA_DIR, 'JData_Comment.csv')
+ACTION_DATA = os.path.join(DATA_DIR, 'JData_Action_*.csv')
 
 # ---------- Preprocessing ---------- #
 def get_user():
@@ -36,6 +38,13 @@ def get_comment():
     df = pd.read_csv(COMMENT_DATA, sep=',', header=0)
     return df
 
+def get_action():
+    files = glob.glob(ACTION_DATA)
+    dfs = (pd.read_csv(file, sep=',', header=0) for file in files)
+    df = pd.concat(dfs, ignore_index=True)
+    df[['user_id']] = df[['user_id']].astype(int)
+    return df
+
 # ---------- Profiling ---------- #
 def prof_user():
     df = get_user()
@@ -48,6 +57,9 @@ def prof_user():
 
         print '\n> Check sample records...'
         print df.head(10)
+
+        print '\n> Check column data type...'
+        print df.dtypes
 
         print '\n> Count records...'
         print len(df)
@@ -80,6 +92,9 @@ def prof_prod():
 
         print '\n> Check sample records...'
         print df.head(10)
+
+        print '\n> Check column data type...'
+        print df.dtypes
 
         print '\n> Count records...'
         print len(df)
@@ -116,6 +131,9 @@ def prof_comment():
         print '\n> Check sample records...'
         print df.head(10)
 
+        print '\n> Check column data type...'
+        print df.dtypes
+
         print '\n> Count records...'
         print len(df)
 
@@ -136,9 +154,51 @@ def prof_comment():
 
         sys.stdout = orig_stdout
 
+def prof_action():
+    df = get_action()
+    output_file = os.path.join(PROF_DIR, 'prof_action.txt')
+    with open(output_file, 'wb') as f:
+        orig_stdout = sys.stdout
+        sys.stdout = f
+
+        print '===== Check action data ====='
+
+        print '\n> Check sample records...'
+        print df.head(10)
+
+        print '\n> Check column data type...'
+        print df.dtypes
+
+        print '\n> Count records...'
+        print len(df)
+
+        print '\n> Count unique user_id...'
+        print len(df['user_id'].unique())
+
+        print '\n> Count unique sku_id...'
+        print len(df['sku_id'].unique())
+
+        print '\n> Count records by model_id...'
+        print df['model_id'].value_counts(dropna=False)
+
+        print '\n> Count records by type...'
+        print df['type'].value_counts(dropna=False)
+
+        print '\n> Count records by category...'
+        print df['cate'].value_counts(dropna=False)
+
+        print '\n> Count records by brand...'
+        print df['brand'].value_counts(dropna=False)
+
+        print '\n> Count records by time...'
+        print df['time'].value_counts(dropna=False).sort_index()
+
+        sys.stdout = orig_stdout
+
 
 if __name__ == '__main__':
     prof_user()
     prof_prod()
     prof_comment()
+    prof_action()
 

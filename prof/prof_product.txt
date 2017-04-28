@@ -13,6 +13,15 @@
 8  100045   2   2   2     8    124
 9  100057   3   1   2     8    306
 
+> Check column data type...
+sku_id    int64
+a1        int64
+a2        int64
+a3        int64
+cate      int64
+brand     int64
+dtype: object
+
 > Count records...
 24187
 
