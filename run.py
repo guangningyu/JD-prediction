@@ -21,6 +21,7 @@ PROF_DIR = get_dir('prof')
 # ---------- datasets definition ---------- #
 USER_DATA = os.path.join(DATA_DIR, 'JData_User.csv')
 PROD_DATA = os.path.join(DATA_DIR, 'JData_Product.csv')
+COMMENT_DATA = os.path.join(DATA_DIR, 'JData_Comment.csv')
 
 # ---------- Preprocessing ---------- #
 def get_user():
@@ -29,6 +30,10 @@ def get_user():
 
 def get_prod():
     df = pd.read_csv(PROD_DATA, sep=',', header=0)
+    return df
+
+def get_comment():
+    df = pd.read_csv(COMMENT_DATA, sep=',', header=0)
     return df
 
 # ---------- Profiling ---------- #
@@ -99,8 +104,41 @@ def prof_prod():
 
         sys.stdout = orig_stdout
 
+def prof_comment():
+    df = get_comment()
+    output_file = os.path.join(PROF_DIR, 'prof_comment.txt')
+    with open(output_file, 'wb') as f:
+        orig_stdout = sys.stdout
+        sys.stdout = f
+
+        print '===== Check comment data ====='
+
+        print '\n> Check sample records...'
+        print df.head(10)
+
+        print '\n> Count records...'
+        print len(df)
+
+        print '\n> Count comments by dt...'
+        print df['dt'].value_counts(dropna=False).sort_index()
+
+        print '\n> Count unique sku_id...'
+        print len(df['sku_id'].unique())
+
+        print '\n> Count records by comment_num...'
+        print df['comment_num'].value_counts(dropna=False)
+
+        print '\n> Count records by has_bad_comment...'
+        print df['has_bad_comment'].value_counts(dropna=False)
+
+        print '\n> Count records by bad_comment_rate...'
+        print df['bad_comment_rate'].value_counts(dropna=False).sort_index()
+
+        sys.stdout = orig_stdout
+
 
 if __name__ == '__main__':
-    #prof_user()
+    prof_user()
     prof_prod()
+    prof_comment()
 
