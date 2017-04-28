@@ -65,7 +65,7 @@ def prof_user():
         print df['user_lv_cd'].value_counts(dropna=False)
 
         print '\n> Count users by reg date...'
-        print df['user_reg_tm'].value_counts(dropna=False)
+        print df['user_reg_tm'].value_counts(dropna=False).sort_index()
 
         sys.stdout = orig_stdout
 
