@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+import sys
 import os
 import pandas as pd
 
@@ -32,29 +33,36 @@ def get_prod():
 
 # ---------- Profiling ---------- #
 def prof_user():
-    print '===== Check user data ====='
     df = get_user()
+    output_file = os.path.join(PROF_DIR, 'prof_user.txt')
+    with open(output_file, 'wb') as f:
+        orig_stdout = sys.stdout
+        sys.stdout = f
 
-    print '\n> Check sample records...'
-    print df.head(10)
+        print '===== Check user data ====='
 
-    print '\n> Count records...'
-    print len(df)
+        print '\n> Check sample records...'
+        print df.head(10)
 
-    print '\n> Count unique user_id...'
-    print len(df['user_id'].unique())
+        print '\n> Count records...'
+        print len(df)
 
-    print '\n> Count users by age...'
-    print df['age'].value_counts(dropna=False)
+        print '\n> Count unique user_id...'
+        print len(df['user_id'].unique())
 
-    print '\n> Count users by sex...'
-    print df['sex'].value_counts(dropna=False)
+        print '\n> Count users by age...'
+        print df['age'].value_counts(dropna=False)
 
-    print '\n> Count users by level...'
-    print df['user_lv_cd'].value_counts(dropna=False)
+        print '\n> Count users by sex...'
+        print df['sex'].value_counts(dropna=False)
 
-    print '\n> Count users by reg date...'
-    print df['user_reg_tm'].value_counts(dropna=False)
+        print '\n> Count users by level...'
+        print df['user_lv_cd'].value_counts(dropna=False)
+
+        print '\n> Count users by reg date...'
+        print df['user_reg_tm'].value_counts(dropna=False)
+
+        sys.stdout = orig_stdout
 
 def prof_prod():
     df = get_prod()
