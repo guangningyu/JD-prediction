@@ -25,22 +25,24 @@ PROD_DATA = os.path.join(DATA_DIR, 'JData_Product.csv')
 COMMENT_DATA = os.path.join(DATA_DIR, 'JData_Comment.csv')
 ACTION_DATA = os.path.join(DATA_DIR, 'JData_Action_*.csv')
 
+MASTER_DATA = os.path.join(TEMP_DIR, 'master.csv')
+
 # ---------- Preprocessing ---------- #
 def get_user():
-    df = pd.read_csv(USER_DATA, sep=',', header=0)
+    df = pd.read_csv(USER_DATA, sep=',', header=0, encoding='GBK')
     return df
 
 def get_prod():
-    df = pd.read_csv(PROD_DATA, sep=',', header=0)
+    df = pd.read_csv(PROD_DATA, sep=',', header=0, encoding='GBK')
     return df
 
 def get_comment():
-    df = pd.read_csv(COMMENT_DATA, sep=',', header=0)
+    df = pd.read_csv(COMMENT_DATA, sep=',', header=0, encoding='GBK')
     return df
 
 def get_action():
     files = glob.glob(ACTION_DATA)
-    dfs = (pd.read_csv(file, sep=',', header=0) for file in files)
+    dfs = (pd.read_csv(file, sep=',', header=0, encoding='GBK') for file in files)
     df = pd.concat(dfs, ignore_index=True)
     df[['user_id']] = df[['user_id']].astype(int)
     return df
@@ -195,10 +197,28 @@ def prof_action():
 
         sys.stdout = orig_stdout
 
+def get_master():
+    # read inputs
+    user = get_user()
+    prod = get_prod()
+    comment = get_comment()
+    action = get_action()
+    # gen master table
+    master = action.merge(user, how='left', on='user_id') \
+                   .merge(prod, how='left', on='sku_id') \
+                   .rename(columns={
+                       'cate_x':  'category',
+                       'brand_x': 'brand',
+                    }) \
+                   .drop(['cate_y', 'brand_y'], axis=1) \
+                   .sort_values(['user_id', 'time'], ascending=[True, True]) \
+                   .to_csv(MASTER_DATA, sep=',', index=False, encoding='utf-8')
+
 
 if __name__ == '__main__':
-    prof_user()
-    prof_prod()
-    prof_comment()
-    prof_action()
+    #prof_user()
+    #prof_prod()
+    #prof_comment()
+    #prof_action()
+    get_master()
 
