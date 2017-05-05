@@ -195,6 +195,15 @@ def prof_action():
         print '\n> Count records by time...'
         print df['time'].value_counts(dropna=False).sort_index()
 
+        print '\n> Count unique sku_id (1.used to be ordered; 2.in cate8)...'
+        print len(df[(df['type']==4) & (df['cate']==8)]['sku_id'].unique())
+
+        print '\n> Count total orders (1.used to be ordered; 2.in cate8)...'
+        print len(df[(df['type']==4) & (df['cate']==8)])
+
+        print '\n> Count total orders by sku_id(1.used to be ordered; 2.in cate8)...'
+        print df[(df['type']==4) & (df['cate']==8)]['sku_id'].value_counts(dropna=False)
+
         sys.stdout = orig_stdout
 
 def get_master():
@@ -216,9 +225,9 @@ def get_master():
 
 
 if __name__ == '__main__':
-    #prof_user()
-    #prof_prod()
-    #prof_comment()
-    #prof_action()
+    prof_user()
+    prof_prod()
+    prof_comment()
+    prof_action()
     get_master()
 
