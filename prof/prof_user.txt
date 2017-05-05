@@ -14,11 +14,11 @@
 9   200010  36-45岁  2.0           3  2016-01-26
 
 > Check column data type...
-user_id          int64
-age             object
-sex            float64
-user_lv_cd       int64
-user_reg_tm     object
+user_id                 int64
+age                    object
+sex                   float64
+user_lv_cd              int64
+user_reg_tm    datetime64[ns]
 dtype: object
 
 > Count records...
@@ -54,7 +54,7 @@ Name: sex, dtype: int64
 Name: user_lv_cd, dtype: int64
 
 > Count users by reg date...
-NaN            3
+NaT            3
 2003-06-16     1
 2003-09-05     1
 2003-10-15     1

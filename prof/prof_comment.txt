@@ -1,24 +1,24 @@
 ===== Check comment data =====
 
 > Check sample records...
-           dt  sku_id  comment_num  has_bad_comment  bad_comment_rate
-0  2016-02-01    1000            3                1            0.0417
-1  2016-02-01   10000            2                0            0.0000
-2  2016-02-01  100011            4                1            0.0376
-3  2016-02-01  100018            3                0            0.0000
-4  2016-02-01  100020            3                0            0.0000
-5  2016-02-01  100021            1                0            0.0000
-6  2016-02-01  100028            1                0            0.0000
-7  2016-02-01  100031            3                0            0.0000
-8  2016-02-01  100033            2                0            0.0000
-9  2016-02-01  100035            1                1            1.0000
+          dt  sku_id  comment_num  has_bad_comment  bad_comment_rate
+0 2016-02-01    1000            3                1            0.0417
+1 2016-02-01   10000            2                0            0.0000
+2 2016-02-01  100011            4                1            0.0376
+3 2016-02-01  100018            3                0            0.0000
+4 2016-02-01  100020            3                0            0.0000
+5 2016-02-01  100021            1                0            0.0000
+6 2016-02-01  100028            1                0            0.0000
+7 2016-02-01  100031            3                0            0.0000
+8 2016-02-01  100033            2                0            0.0000
+9 2016-02-01  100035            1                1            1.0000
 
 > Check column data type...
-dt                   object
-sku_id                int64
-comment_num           int64
-has_bad_comment       int64
-bad_comment_rate    float64
+dt                  datetime64[ns]
+sku_id                       int64
+comment_num                  int64
+has_bad_comment              int64
+bad_comment_rate           float64
 dtype: object
 
 > Count records...

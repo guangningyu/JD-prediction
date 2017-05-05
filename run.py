@@ -30,6 +30,7 @@ MASTER_DATA = os.path.join(TEMP_DIR, 'master.csv')
 # ---------- Preprocessing ---------- #
 def get_user():
     df = pd.read_csv(USER_DATA, sep=',', header=0, encoding='GBK')
+    df['user_reg_tm'] = pd.to_datetime(df['user_reg_tm'], errors='coerce')
     return df
 
 def get_prod():
@@ -38,12 +39,14 @@ def get_prod():
 
 def get_comment():
     df = pd.read_csv(COMMENT_DATA, sep=',', header=0, encoding='GBK')
+    df['dt'] = pd.to_datetime(df['dt'], errors='coerce')
     return df
 
 def get_action():
     files = glob.glob(ACTION_DATA)
     dfs = (pd.read_csv(file, sep=',', header=0, encoding='GBK') for file in files)
     df = pd.concat(dfs, ignore_index=True)
+    df['time'] = pd.to_datetime(df['time'], errors='coerce')
     df[['user_id']] = df[['user_id']].astype(int)
     return df
 
@@ -212,9 +215,22 @@ def get_master():
     prod = get_prod()
     comment = get_comment()
     action = get_action()
+
+    # expand comments
+    start_dt = '2016-02-01'
+    end_dt = '2016-04-20'
+    date_range = pd.DataFrame({'date': pd.date_range(start_dt, end_dt).format()})
+    date_range['date'] = pd.to_datetime(date_range['date'], errors='coerce')
+    date_range['week_start'] = date_range['date'].dt.to_period('W').apply(lambda r:r.start_time)
+    comment = comment.merge(date_range, how='inner', left_on='dt', right_on='week_start')
+    comment = comment.drop(['week_start', 'dt'], axis=1)
+
     # gen master table
+    action['date'] = action['time'].dt.date
+    action['date'] = pd.to_datetime(action['date'], errors='coerce')
     master = action.merge(user, how='left', on='user_id') \
                    .merge(prod, how='left', on='sku_id') \
+                   .merge(comment, how='left', on=['date', 'sku_id']) \
                    .rename(columns={
                        'cate_x':  'category',
                        'brand_x': 'brand',
@@ -225,9 +241,9 @@ def get_master():
 
 
 if __name__ == '__main__':
-    prof_user()
-    prof_prod()
-    prof_comment()
-    prof_action()
+    #prof_user()
+    #prof_prod()
+    #prof_comment()
+    #prof_action()
     get_master()
 
