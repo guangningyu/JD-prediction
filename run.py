@@ -210,12 +210,42 @@ def prof_action():
 
         sys.stdout = orig_stdout
 
-def get_master():
+def get_session(outfile):
+    print 'add session'
+    # read action
+    df = get_action()
+    # get uniq sorted user_id * time pair
+    df = df[['user_id', 'time']] \
+         .drop_duplicates() \
+         .sort_values(['user_id', 'time'], ascending=[True, True])
+    # derive session_id
+    session_num = 1
+    def get_session_id(r):
+        global session_num
+        session_interval = 1800.0 # 30min
+        time_diff = (r['time'] - r['last_time']) / np.timedelta64(1, 's')
+        if r['user_id'] != r['last_user']:
+            session_num = 1
+        elif time_diff > session_interval:
+            session_num += 1
+        return session_num
+    df['last_time'] = df['time'].shift(1)
+    df['last_user'] = df['user_id'].shift(1)
+    df['session_id'] = df.apply(lambda r : get_session_id(r), axis=1)
+    df = df.drop(['last_time', 'last_user'], axis=1)
+    # save to file
+    df.to_csv(outfile, sep=',', index=False, encoding='utf-8')
+
+def get_master(outfile):
     # read inputs
     user = get_user()
     prod = get_prod()
     comment = get_comment()
     action = get_action()
+
+    # read session_id
+    sess = pd.read_csv(MASTER_DATA + '_sess', sep=',', header=0, encoding='GBK')
+    sess['time'] = pd.to_datetime(sess['time'], errors='coerce')
 
     # expand comments
     start_dt = '2016-02-01'
@@ -232,6 +262,7 @@ def get_master():
     df = action.merge(user, how='left', on='user_id') \
                    .merge(prod, how='left', on='sku_id') \
                    .merge(comment, how='left', on=['date', 'sku_id']) \
+                   .merge(sess, how='left', on=['user_id', 'time']) \
                    .rename(columns={
                        'cate_x':  'category',
                        'brand_x': 'brand',
@@ -239,26 +270,8 @@ def get_master():
                    .drop(['cate_y', 'brand_y'], axis=1) \
                    .sort_values(['user_id', 'time', 'sku_id', 'type', 'model_id'], ascending=[True, True, True, True, True])
 
-    # derive session_id
-    session_num = 1
-
-    def get_session_id(r):
-        global session_num
-        session_interval = 1800.0 # 30min
-        time_diff = (r['time'] - r['last_time']) / np.timedelta64(1, 's')
-        if r['user_id'] != r['last_user']:
-            session_num = 1
-        elif time_diff > session_interval:
-            session_num += 1
-        return session_num
-
-    df['last_time'] = df['time'].shift(1)
-    df['last_user'] = df['user_id'].shift(1)
-    df['session_id'] = df.apply(lambda r : get_session_id(r), axis=1)
-    df = df.drop(['last_time', 'last_user'], axis=1)
-
     # save to file
-    df.to_csv(MASTER_DATA, sep=',', index=False, encoding='utf-8')
+    df.to_csv(outfile, sep=',', index=False, encoding='utf-8')
 
 def get_train_input():
     # read master table
@@ -277,6 +290,7 @@ if __name__ == '__main__':
     #prof_prod()
     #prof_comment()
     #prof_action()
-    get_master()
+    #get_session(MASTER_DATA + '_sess')
+    get_master(MASTER_DATA)
     #get_train_input()
 
