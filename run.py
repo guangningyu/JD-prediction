@@ -211,7 +211,7 @@ def get_master():
                        'brand_x': 'brand',
                     }) \
                    .drop(['cate_y', 'brand_y'], axis=1) \
-                   .sort_values(['user_id', 'time'], ascending=[True, True]) \
+                   .sort_values(['user_id', 'time', 'sku_id', 'type', 'model_id'], ascending=[True, True, True, True, True]) \
                    .to_csv(MASTER_DATA, sep=',', index=False, encoding='utf-8')
 
 
