@@ -5,6 +5,7 @@
 import os
 #import tensorflow as tf
 #import random
+import numpy as np
 import pandas as pd
 import datetime
 import pickle
@@ -19,6 +20,9 @@ SKUS = os.path.join(TEMP_DIR, 'sku_list.csv')
 USERS = os.path.join(TEMP_DIR, 'user_list.csv')
 USER_LABELS = os.path.join(TEMP_DIR, 'user_labels.pkl')
 EVENT_SEQUENCE = os.path.join(TEMP_DIR, 'event_sequence.pkl')
+
+# ---------- constants ---------- #
+EVENT_LENGTH = 300
 
 # ---------- prepare training data ---------- #
 def separate_time_window(infile, outfile_x, outfile_y):
@@ -97,22 +101,46 @@ def get_user_event_sequence(infile, outfile, keep_latest_events=200):
     #df.to_csv(MASTER_DATA + '_x_reverse', sep=',', index=False, encoding='utf-8')
 
     # 2.prepare sequence data
+    def refactor_seq(seq, max_length):
+        def padding(list):
+            length = len(list)
+            list += [-999999 for i in range(max_length - length)]
+            return list
+        s = []
+        feature_num = len(seq[0])
+        for i in range(feature_num):
+            list = [action[i] for action in seq]
+            list = padding(list)
+            s += list
+        return s
+
     data = []
     user = []
     seq = []
     last_user_id = ''
+
     for index, row in df.iterrows():
         this_user_id = row['user_id']
+        # preprocessing feature
+        sku_id = row['sku_id']
+        model_id = int(-1 if np.isnan(row['model_id']) else row['model_id'])
+        type = row['type']
+        category = row['category']
+        brand = row['brand']
+        a1 = int(0 if np.isnan(row['a1']) else row['a1'])
+        a2 = int(0 if np.isnan(row['a2']) else row['a2'])
+        a3 = int(0 if np.isnan(row['a3']) else row['a3'])
         action = [
-            row['sku_id'],
-            row['model_id'],
-            row['type'],
-            row['category'],
-            row['brand'],
-            row['a1'],
-            row['a2'],
-            row['a3'],
+            sku_id,
+            model_id,
+            type,
+            category,
+            brand,
+            a1,
+            a2,
+            a3,
         ]
+
         if last_user_id == '':
             user.append(this_user_id)
             seq.append(action)
@@ -120,12 +148,12 @@ def get_user_event_sequence(infile, outfile, keep_latest_events=200):
             seq.append(action)
         else:
             user.append(this_user_id)
-            data.append(seq[:])
+            data.append(refactor_seq(seq[:], keep_latest_events))
             seq = []
             seq.append(action)
         last_user_id = this_user_id
     # append the last user
-    data.append(seq[:])
+    data.append(refactor_seq(seq[:], keep_latest_events))
 
     # 3.dump data to pickle
     with open(outfile, 'wb') as handle:
@@ -134,78 +162,47 @@ def get_user_event_sequence(infile, outfile, keep_latest_events=200):
     # 4.return sequence data
     return data
 
+class SequenceData(object):
+    """ Generate sequence of data with dynamic length.
+    NOTICE:
+    We have to pad each sequence to reach 'max_seq_len' for TensorFlow
+    consistency (we cannot feed a numpy array with inconsistent
+    dimensions). The dynamic calculation will then be perform thanks to
+    'seqlen' attribute that records every actual sequence length.
+    """
+    def __init__(self, data_pkl, labels_pkl):
+        # read pickles
+        with open(data_pkl, 'rb') as handle:
+            self.data = pickle.load(handle)
+        with open(labels_pkl, 'rb') as handle:
+            self.labels = pickle.load(handle)
+        #self.seqlen = []
+        self.batch_id = 0
+
+    def next(self, batch_size):
+        """ Return a batch of data. When dataset end is reached, start over.
+        """
+        if self.batch_id + batch_size <= len(self.data):
+            batch_data = self.data[self.batch_id:(self.batch_id + batch_size)]
+            batch_labels = self.labels[self.batch_id:(self.batch_id + batch_size)]
+            self.batch_id += batch_size
+        else:
+            batch_data = self.data[self.batch_id:] + self.data[:(self.batch_id + batch_size - len(self.data))]
+            batch_labels = self.labels[self.batch_id:] + self.labels[:(self.batch_id + batch_size - len(self.data))]
+            self.batch_id = self.batch_id + batch_size - len(self.data)
+        return batch_data, batch_labels
+
+
 if __name__ == '__main__':
     #separate_time_window(MASTER_DATA, MASTER_DATA_X, MASTER_DATA_Y) # 20min
     #get_skus(MASTER_DATA, SKUS) # 3min
     #get_users(MASTER_DATA_X, USERS) # 2min
     #labels = get_user_labels(USERS, MASTER_DATA_Y, USER_LABELS) # 0.1min
-    #data = get_user_event_sequence(MASTER_DATA_X, EVENT_SEQUENCE, keep_latest_events=300) # 45min
-
-    #with open(EVENT_SEQUENCE, 'rb') as handle:
-    #    data = pickle.load(handle)
-
-    #with open(USER_LABELS, 'rb') as handle:
-    #    labels = pickle.load(handle)
+    #data = get_user_event_sequence(MASTER_DATA_X, EVENT_SEQUENCE, keep_latest_events=EVENT_LENGTH) # 51min
+    trainset = SequenceData(EVENT_SEQUENCE, USER_LABELS)
 
     # ---------- no longer needed ---------- #
     #count_order_num_per_user(MASTER_DATA_Y) # 0.1min
-
-
-
-#class ToySequenceData(object):
-#    """ Generate sequence of data with dynamic length.
-#    This class generate samples for training:
-#    - Class 0: linear sequences (i.e. [0, 1, 2, 3,...])
-#    - Class 1: random sequences (i.e. [1, 3, 10, 7,...])
-#    NOTICE:
-#    We have to pad each sequence to reach 'max_seq_len' for TensorFlow
-#    consistency (we cannot feed a numpy array with inconsistent
-#    dimensions). The dynamic calculation will then be perform thanks to
-#    'seqlen' attribute that records every actual sequence length.
-#    """
-#    def __init__(self, n_samples=1000, max_seq_len=20, min_seq_len=3,
-#                 max_value=1000):
-#        self.data = []
-#        self.labels = []
-#        self.seqlen = []
-#        for i in range(n_samples):
-#            # Random sequence length
-#            len = random.randint(min_seq_len, max_seq_len)
-#            # Monitor sequence length for TensorFlow dynamic calculation
-#            self.seqlen.append(len)
-#            # Add a random or linear int sequence (50% prob)
-#            if random.random() < .5:
-#                # Generate a linear sequence
-#                rand_start = random.randint(0, max_value - len)
-#                s = [[float(i)/max_value] for i in
-#                     range(rand_start, rand_start + len)]
-#                # Pad sequence for dimension consistency
-#                s += [[0.] for i in range(max_seq_len - len)]
-#                self.data.append(s)
-#                self.labels.append([1., 0.])
-#            else:
-#                # Generate a random sequence
-#                s = [[float(random.randint(0, max_value))/max_value]
-#                     for i in range(len)]
-#                # Pad sequence for dimension consistency
-#                s += [[0.] for i in range(max_seq_len - len)]
-#                self.data.append(s)
-#                self.labels.append([0., 1.])
-#        self.batch_id = 0
-#
-#    def next(self, batch_size):
-#        """ Return a batch of data. When dataset end is reached, start over.
-#        """
-#        if self.batch_id == len(self.data):
-#            self.batch_id = 0
-#        batch_data = (self.data[self.batch_id:min(self.batch_id +
-#                                                  batch_size, len(self.data))])
-#        batch_labels = (self.labels[self.batch_id:min(self.batch_id +
-#                                                  batch_size, len(self.data))])
-#        batch_seqlen = (self.seqlen[self.batch_id:min(self.batch_id +
-#                                                  batch_size, len(self.data))])
-#        self.batch_id = min(self.batch_id + batch_size, len(self.data))
-#        return batch_data, batch_labels, batch_seqlen
 
 
 # ==========
