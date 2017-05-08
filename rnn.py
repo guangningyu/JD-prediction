@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import datetime
 import pickle
+import random
 
 # ---------- table definition ---------- #
 MAIN_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -155,12 +156,29 @@ def get_user_event_sequence(infile, outfile, keep_latest_events=200):
     # append the last user
     data.append(refactor_seq(seq[:], keep_latest_events))
 
-    # 3.dump data to pickle
+    # 3.reshape and transpose
+    size = len(data)
+    n_steps = EVENT_LENGTH
+    n_input = len(data[0]) / n_steps
+    data = np.array(data).reshape(size, n_input, n_steps)
+    data = np.transpose(data, (0,2,1)) # transpose of n_input and n_steps
+
+    # 4.dump data to pickle
     with open(outfile, 'wb') as handle:
         pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-    # 4.return sequence data
+    # 5.return sequence data
     return data
+
+def split_train_test(data_pkl, labels_pkl, train_rate=0.7):
+    with open(data_pkl, 'rb') as handle:
+        data = pickle.load(handle)
+    with open(labels_pkl, 'rb') as handle:
+        labels = pickle.load(handle)
+    rows = zip(data, labels)
+    random.shuffle(rows)
+    cut_point = int(train_rate * len(rows))
+    return rows[:cut_point], rows[cut_point:]
 
 class SequenceData(object):
     """ Generate sequence of data with dynamic length.
@@ -170,12 +188,9 @@ class SequenceData(object):
     dimensions). The dynamic calculation will then be perform thanks to
     'seqlen' attribute that records every actual sequence length.
     """
-    def __init__(self, data_pkl, labels_pkl):
-        # read pickles
-        with open(data_pkl, 'rb') as handle:
-            self.data = pickle.load(handle)
-        with open(labels_pkl, 'rb') as handle:
-            self.labels = pickle.load(handle)
+    def __init__(self, dataset):
+        self.data = [data for (data, label) in dataset]
+        self.labels = [label for (data, label) in dataset]
         #self.seqlen = []
         self.batch_id = 0
 
@@ -192,7 +207,7 @@ class SequenceData(object):
             self.batch_id = self.batch_id + batch_size - len(self.data)
         return batch_data, batch_labels
 
-def run_rnn(trainset):
+def run_rnn(trainset, testset):
     # rnn parameters
     learning_rate = 0.01
     training_iters = 1000000
@@ -202,8 +217,8 @@ def run_rnn(trainset):
     forget_bias = 1.0
 
     # model parameters
-    n_steps = EVENT_LENGTH
-    n_input = len(trainset.data[0])/n_steps
+    n_steps = len(trainset.data[0])
+    n_input = len(trainset.data[0][0])
     n_classes = len(trainset.labels[0])
 
     # tf Graph input
@@ -252,9 +267,6 @@ def run_rnn(trainset):
         # keep training until reach max iterations
         while step * batch_size < training_iters:
             batch_x, batch_y = trainset.next(batch_size)
-            # reshape data
-            batch_x = np.array(batch_x).reshape(batch_size, n_input, n_steps)
-            batch_x = np.transpose(batch_x, (0,2,1)) # transpose of n_input and n_steps
             # run optimization op (backprop)
             sess.run(optimizer, feed_dict={x: batch_x, y: batch_y})
             if step % display_step == 0:
@@ -268,13 +280,11 @@ def run_rnn(trainset):
             step += 1
         print("Optimization Finished!")
 
-    #    # calculate accuracy
-    #    test_data = testset.data
-    #    test_label = testset.labels
-    #    test_seqlen = testset.seqlen
-    #    print("Testing Accuracy:", \
-    #        sess.run(accuracy, feed_dict={x: test_data, y: test_label,
-    #                                      seqlen: test_seqlen}))
+        # calculate accuracy
+        test_data = testset.data
+        test_label = testset.labels
+        print("Testing Accuracy:", \
+            sess.run(accuracy, feed_dict={x: test_data, y: test_label}))
 
 
 if __name__ == '__main__':
@@ -284,9 +294,11 @@ if __name__ == '__main__':
     #labels = get_user_labels(USERS, MASTER_DATA_Y, USER_LABELS) # 0.1min
     #data = get_user_event_sequence(MASTER_DATA_X, EVENT_SEQUENCE, keep_latest_events=EVENT_LENGTH) # 51min
 
-    trainset = SequenceData(EVENT_SEQUENCE, USER_LABELS)
-    #testset = SequenceData(EVENT_SEQUENCE, USER_LABELS) #TODO
-    run_rnn(trainset)
+    trainset, testset = split_train_test(EVENT_SEQUENCE, USER_LABELS, 0.7)
+    trainset = SequenceData(trainset)
+    testset = SequenceData(testset)
+
+    run_rnn(trainset, testset) # 15min
 
     # ---------- no longer needed ---------- #
     #count_order_num_per_user(MASTER_DATA_Y) # 0.1min
