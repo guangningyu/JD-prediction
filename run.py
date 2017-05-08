@@ -4,6 +4,7 @@
 import sys
 import os
 import glob
+import numpy as np
 import pandas as pd
 
 # ---------- directories definition ---------- #
@@ -25,23 +26,28 @@ PROD_DATA = os.path.join(DATA_DIR, 'JData_Product.csv')
 COMMENT_DATA = os.path.join(DATA_DIR, 'JData_Comment.csv')
 ACTION_DATA = os.path.join(DATA_DIR, 'JData_Action_*.csv')
 
+MASTER_DATA = os.path.join(TEMP_DIR, 'master.csv')
+
 # ---------- Preprocessing ---------- #
 def get_user():
-    df = pd.read_csv(USER_DATA, sep=',', header=0)
+    df = pd.read_csv(USER_DATA, sep=',', header=0, encoding='GBK')
+    df['user_reg_tm'] = pd.to_datetime(df['user_reg_tm'], errors='coerce')
     return df
 
 def get_prod():
-    df = pd.read_csv(PROD_DATA, sep=',', header=0)
+    df = pd.read_csv(PROD_DATA, sep=',', header=0, encoding='GBK')
     return df
 
 def get_comment():
-    df = pd.read_csv(COMMENT_DATA, sep=',', header=0)
+    df = pd.read_csv(COMMENT_DATA, sep=',', header=0, encoding='GBK')
+    df['dt'] = pd.to_datetime(df['dt'], errors='coerce')
     return df
 
 def get_action():
     files = glob.glob(ACTION_DATA)
-    dfs = (pd.read_csv(file, sep=',', header=0) for file in files)
+    dfs = (pd.read_csv(file, sep=',', header=0, encoding='GBK') for file in files)
     df = pd.concat(dfs, ignore_index=True)
+    df['time'] = pd.to_datetime(df['time'], errors='coerce')
     df[['user_id']] = df[['user_id']].astype(int)
     return df
 
@@ -193,12 +199,98 @@ def prof_action():
         print '\n> Count records by time...'
         print df['time'].value_counts(dropna=False).sort_index()
 
+        print '\n> Count unique sku_id (1.used to be ordered; 2.in cate8)...'
+        print len(df[(df['type']==4) & (df['cate']==8)]['sku_id'].unique())
+
+        print '\n> Count total orders (1.used to be ordered; 2.in cate8)...'
+        print len(df[(df['type']==4) & (df['cate']==8)])
+
+        print '\n> Count total orders by sku_id(1.used to be ordered; 2.in cate8)...'
+        print df[(df['type']==4) & (df['cate']==8)]['sku_id'].value_counts(dropna=False)
+
         sys.stdout = orig_stdout
 
+def get_session(outfile):
+    print 'add session'
+    # read action
+    df = get_action()
+    # get uniq sorted user_id * time pair
+    df = df[['user_id', 'time']] \
+         .drop_duplicates() \
+         .sort_values(['user_id', 'time'], ascending=[True, True])
+    # derive session_id
+    session_num = 1
+    def get_session_id(r):
+        global session_num
+        session_interval = 1800.0 # 30min
+        time_diff = (r['time'] - r['last_time']) / np.timedelta64(1, 's')
+        if r['user_id'] != r['last_user']:
+            session_num = 1
+        elif time_diff > session_interval:
+            session_num += 1
+        return session_num
+    df['last_time'] = df['time'].shift(1)
+    df['last_user'] = df['user_id'].shift(1)
+    df['session_id'] = df.apply(lambda r : get_session_id(r), axis=1)
+    df = df.drop(['last_time', 'last_user'], axis=1)
+    # save to file
+    df.to_csv(outfile, sep=',', index=False, encoding='utf-8')
+
+def get_master(outfile):
+    # read inputs
+    user = get_user()
+    prod = get_prod()
+    comment = get_comment()
+    action = get_action()
+
+    # read session_id
+    sess = pd.read_csv(MASTER_DATA + '_sess', sep=',', header=0, encoding='GBK')
+    sess['time'] = pd.to_datetime(sess['time'], errors='coerce')
+
+    # expand comments
+    start_dt = '2016-02-01'
+    end_dt = '2016-04-20'
+    date_range = pd.DataFrame({'date': pd.date_range(start_dt, end_dt).format()})
+    date_range['date'] = pd.to_datetime(date_range['date'], errors='coerce')
+    date_range['week_start'] = date_range['date'].dt.to_period('W').apply(lambda r : r.start_time)
+    comment = comment.merge(date_range, how='inner', left_on='dt', right_on='week_start')
+    comment = comment.drop(['week_start', 'dt'], axis=1)
+
+    # merge action, user, product and comment
+    action['date'] = action['time'].dt.date
+    action['date'] = pd.to_datetime(action['date'], errors='coerce')
+    df = action.merge(user, how='left', on='user_id') \
+                   .merge(prod, how='left', on='sku_id') \
+                   .merge(comment, how='left', on=['date', 'sku_id']) \
+                   .merge(sess, how='left', on=['user_id', 'time']) \
+                   .rename(columns={
+                       'cate_x':  'category',
+                       'brand_x': 'brand',
+                    }) \
+                   .drop(['cate_y', 'brand_y'], axis=1) \
+                   .sort_values(['user_id', 'time', 'sku_id', 'type', 'model_id'], ascending=[True, True, True, True, True])
+
+    # save to file
+    df.to_csv(outfile, sep=',', index=False, encoding='utf-8')
+
+def get_train_input():
+    # read master table
+    #df = pd.read_csv(MASTER_DATA, sep=',', header=0, encoding='utf-8', nrows=30000) #TODO
+    df = pd.read_csv(MASTER_DATA, sep=',', header=0, encoding='utf-8')
+
+    # change column type
+    df['time'] = pd.to_datetime(df['time'], errors='coerce')
+    df['date'] = pd.to_datetime(df['date'], errors='coerce')
+    df['user_reg_tm'] = pd.to_datetime(df['user_reg_tm'], errors='coerce')
+
+    return df
 
 if __name__ == '__main__':
-    prof_user()
-    prof_prod()
-    prof_comment()
-    prof_action()
+    #prof_user()
+    #prof_prod()
+    #prof_comment()
+    #prof_action()
+    #get_session(MASTER_DATA + '_sess')
+    get_master(MASTER_DATA)
+    #get_train_input()
 
