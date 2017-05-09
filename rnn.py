@@ -14,6 +14,7 @@ import random
 # ---------- table definition ---------- #
 MAIN_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMP_DIR = os.path.join(MAIN_DIR, 'temp')
+MODEL_DIR = os.path.join(MAIN_DIR, 'model')
 MASTER_DATA = os.path.join(TEMP_DIR, 'master.csv')
 MASTER_DATA_X = os.path.join(TEMP_DIR, 'master_x.csv')
 MASTER_DATA_Y = os.path.join(TEMP_DIR, 'master_y.csv')
@@ -21,9 +22,10 @@ SKUS = os.path.join(TEMP_DIR, 'sku_list.csv')
 USERS = os.path.join(TEMP_DIR, 'user_list.csv')
 USER_LABELS = os.path.join(TEMP_DIR, 'user_labels.pkl')
 EVENT_SEQUENCE = os.path.join(TEMP_DIR, 'event_sequence.pkl')
+RNN_SCORES = os.path.join(TEMP_DIR, 'rnn_scores.pkl')
 
 # ---------- constants ---------- #
-EVENT_LENGTH = 300
+EVENT_LENGTH = 500
 
 # ---------- prepare training data ---------- #
 def separate_time_window(infile, outfile_x, outfile_y):
@@ -115,13 +117,21 @@ def get_user_event_sequence(infile, outfile, keep_latest_events=200):
             s += list
         return s
 
+    # find the max datetime as observation timestamp
+    max_timestamp = max(df['time'])
+    max_timestamp = datetime.datetime.strptime(max_timestamp, '%Y-%m-%d %H:%M:%S')
+    max_timestamp = int(max_timestamp.strftime('%s'))
+
+    # init lists
     data = []
     user = []
     seq = []
+    seq_len = []
     last_user_id = ''
 
     for index, row in df.iterrows():
         this_user_id = row['user_id']
+
         # preprocessing feature
         sku_id = row['sku_id']
         model_id = int(-1 if np.isnan(row['model_id']) else row['model_id'])
@@ -131,6 +141,16 @@ def get_user_event_sequence(infile, outfile, keep_latest_events=200):
         a1 = int(0 if np.isnan(row['a1']) else row['a1'])
         a2 = int(0 if np.isnan(row['a2']) else row['a2'])
         a3 = int(0 if np.isnan(row['a3']) else row['a3'])
+        timestamp = datetime.datetime.strptime(row['time'], '%Y-%m-%d %H:%M:%S')
+        timestamp = int(timestamp.strftime('%s'))
+        till_obs = max_timestamp - timestamp
+        if last_user_id != this_user_id: # for the very first record
+            till_next = 99999999 # set it to a very large number, since there's no next action
+        else:
+            till_next = next_timestamp - timestamp
+        next_timestamp = timestamp
+
+        # create feature list
         action = [
             sku_id,
             model_id,
@@ -140,6 +160,8 @@ def get_user_event_sequence(infile, outfile, keep_latest_events=200):
             a1,
             a2,
             a3,
+            till_next,
+            till_obs,
         ]
 
         if last_user_id == '':
@@ -148,12 +170,15 @@ def get_user_event_sequence(infile, outfile, keep_latest_events=200):
         elif this_user_id == last_user_id:
             seq.append(action)
         else:
+            # when meet new user
             user.append(this_user_id)
-            data.append(refactor_seq(seq[:], keep_latest_events))
-            seq = []
+            seq_len.append(len(seq[:])) # append last user's seq_len
+            data.append(refactor_seq(seq[:], keep_latest_events)) # append last user's seq
+            seq = [] # init seq for the new user
             seq.append(action)
         last_user_id = this_user_id
     # append the last user
+    seq_len.append(len(seq[:]))
     data.append(refactor_seq(seq[:], keep_latest_events))
 
     # 3.reshape and transpose
@@ -163,11 +188,14 @@ def get_user_event_sequence(infile, outfile, keep_latest_events=200):
     data = np.array(data).reshape(size, n_input, n_steps)
     data = np.transpose(data, (0,2,1)) # transpose of n_input and n_steps
 
-    # 4.dump data to pickle
+    # 4.zip (user_id, data, seq_len) as data
+    data = zip(user, data, seq_len)
+
+    # 5.dump data to pickle
     with open(outfile, 'wb') as handle:
         pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-    # 5.return sequence data
+    # 6.return sequence data
     return data
 
 def split_train_test(data_pkl, labels_pkl, train_rate=0.7):
@@ -207,11 +235,11 @@ class SequenceData(object):
             self.batch_id = self.batch_id + batch_size - len(self.data)
         return batch_data, batch_labels
 
-def run_rnn(trainset, testset):
+def run_rnn(trainset, testset, scoreset=None):
     # rnn parameters
     learning_rate = 0.01
     training_iters = 1000000
-    batch_size = 128
+    batch_size = 1000
     display_step = 10
     n_hidden = 64 # hidden layer num of features
     forget_bias = 1.0
@@ -248,9 +276,16 @@ def run_rnn(trainset, testset):
 
     pred = RNN(x, weights, biases)
 
-    # define loss and optimizer
+    # define results
+    # why use softmax, not sigmoid: just one output unit to fire with a large value
+    results = tf.nn.softmax(pred, name='results')
+
+    # define loss
     cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=pred, labels=y))
-    optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost)
+
+    # define optimizer (train step)
+    #optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost)
+    optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate).minimize(cost)
 
     # evaluate model
     correct_pred = tf.equal(tf.argmax(pred,1), tf.argmax(y,1))
@@ -261,7 +296,7 @@ def run_rnn(trainset, testset):
 
     # launch the graph
     with tf.Session() as sess:
-        print '> Start training...'
+        print('> Start training...')
         sess.run(init)
         step = 1
         # keep training until reach max iterations
@@ -286,19 +321,34 @@ def run_rnn(trainset, testset):
         print("Testing Accuracy:", \
             sess.run(accuracy, feed_dict={x: test_data, y: test_label}))
 
+        if scoreset:
+            print('Return scores...')
+            data = scoreset.data
+            labels = scoreset.labels
+            results = sess.run(results, feed_dict={x: data, y: labels})
+            print(results)
+            return zip(results, labels)
+        else:
+            print('Done')
+            return None
+
+def save_order_prob(results, save_file):
+    with open(save_file, 'wb') as handle:
+        pickle.dump(results, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 if __name__ == '__main__':
     #separate_time_window(MASTER_DATA, MASTER_DATA_X, MASTER_DATA_Y) # 20min
     #get_skus(MASTER_DATA, SKUS) # 3min
     #get_users(MASTER_DATA_X, USERS) # 2min
     #labels = get_user_labels(USERS, MASTER_DATA_Y, USER_LABELS) # 0.1min
-    #data = get_user_event_sequence(MASTER_DATA_X, EVENT_SEQUENCE, keep_latest_events=EVENT_LENGTH) # 51min
+    data = get_user_event_sequence(MASTER_DATA_X, EVENT_SEQUENCE, keep_latest_events=EVENT_LENGTH) # 51min
 
-    trainset, testset = split_train_test(EVENT_SEQUENCE, USER_LABELS, 0.7)
-    trainset = SequenceData(trainset)
-    testset = SequenceData(testset)
+    #trainset, testset = split_train_test(EVENT_SEQUENCE, USER_LABELS, 0.7)
+    #trainset = SequenceData(trainset)
+    #testset = SequenceData(testset)
 
-    run_rnn(trainset, testset) # 15min
+    #results = run_rnn(trainset, testset, testset) # 2min
+    #save_order_prob(results, RNN_SCORES)
 
     # ---------- no longer needed ---------- #
     #count_order_num_per_user(MASTER_DATA_Y) # 0.1min
