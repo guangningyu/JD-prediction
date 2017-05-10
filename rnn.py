@@ -10,6 +10,7 @@ import pandas as pd
 import datetime
 import pickle
 import random
+import math
 
 # ---------- table definition ---------- #
 MAIN_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -20,19 +21,31 @@ MASTER_DATA_X = os.path.join(TEMP_DIR, 'master_x.csv')
 MASTER_DATA_Y = os.path.join(TEMP_DIR, 'master_y.csv')
 SKUS = os.path.join(TEMP_DIR, 'sku_list.csv')
 USERS = os.path.join(TEMP_DIR, 'user_list.csv')
-USER_LABELS = os.path.join(TEMP_DIR, 'user_labels.pkl')
-EVENT_SEQUENCE = os.path.join(TEMP_DIR, 'event_sequence.pkl')
-RNN_SCORES = os.path.join(TEMP_DIR, 'rnn_scores.pkl')
+TRAIN_LABELS = os.path.join(TEMP_DIR, 'train_labels.pkl')
+TRAIN_SEQUENCE = os.path.join(TEMP_DIR, 'train_sequence.pkl')
+SCORE_SEQUENCE = os.path.join(TEMP_DIR, 'score_sequence.pkl')
+TEST_SCORES = os.path.join(TEMP_DIR, 'test_scores.pkl')
+TRAINSET = os.path.join(TEMP_DIR, 'trainset.pkl')
+TESTSET = os.path.join(TEMP_DIR, 'testset.pkl')
 
 # ---------- constants ---------- #
 EVENT_LENGTH = 500
 
 # ---------- prepare training data ---------- #
+def dump_pickle(dataset, save_file):
+    with open(save_file, 'wb') as handle:
+        pickle.dump(dataset, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+def load_pickle(save_file):
+    with open(save_file, 'rb') as handle:
+        data = pickle.load(handle)
+    return data
+
 def separate_time_window(infile, outfile_x, outfile_y):
     # set time window
     start_dt = datetime.date(2016,2,1)
-    cut_dt = datetime.date(2016,4,10)
-    end_dt = datetime.date(2016,4,15)
+    cut_dt = datetime.date(2016,4,8)
+    end_dt = datetime.date(2016,4,13)
     # read master
     df = pd.read_csv(infile, sep=',', header=0, encoding='utf-8')
     df['time'] = pd.to_datetime(df['time'], errors='coerce')
@@ -52,7 +65,7 @@ def get_skus(infile, outfile):
         .size() \
         .to_frame(name = 'count') \
         .reset_index() \
-        .sort_values(['count'], ascending=[False])
+        .sort_values(['sku_id'], ascending=[True])
     df.to_csv(outfile, sep=',', index=False, encoding='utf-8')
 
 def get_users(infile, outfile):
@@ -60,16 +73,24 @@ def get_users(infile, outfile):
     df = df[['user_id']].drop_duplicates()
     df.to_csv(outfile, sep=',', index=False, encoding='utf-8')
 
-def get_user_labels(user, master, outfile):
+def get_train_labels(user_file, sku_file, master_file, outfile):
+    '''
+    Result:
+    [
+        (202501, [1, 0], 168651, [0,0,0,...1,...0,0]),
+        (202991, [0, 1],     -1, [0,0,0,...0,...0,0]),
+        ...
+    ]
+    '''
     # 1.get all users who have order
-    df = pd.read_csv(master, sep=',', header=0, encoding='utf-8')
+    df = pd.read_csv(master_file, sep=',', header=0, encoding='utf-8')
     #   if a user has multiple orders, keep the latest one
     df = df[(df['category']==8) & (df['type']==4)] \
-        .drop_duplicates(subset='user_id', keep='last')
-    df = df[['user_id']]
+        .drop_duplicates(subset='user_id', keep='first')
+    df = df[['user_id', 'sku_id']]
     df['has_order'] = 1
     # 2.append to user_list
-    labels = pd.read_csv(user, sep=',', header=0, encoding='utf-8') \
+    labels = pd.read_csv(user_file, sep=',', header=0, encoding='utf-8') \
         .merge(df, how='left', on='user_id')
     #   derive column1
     labels['is_positive'] = 0
@@ -77,12 +98,23 @@ def get_user_labels(user, master, outfile):
     #   derive column2
     labels['is_negative'] = 0
     labels.loc[pd.isnull(labels['has_order']), 'is_negative'] = 1
-    # 3.convert to list
-    labels = labels[['is_positive', 'is_negative']].values.tolist()
-    # 4.dump data to pickle
+    # 3.add one hot encoding for sku list
+    sku_df = pd.read_csv(sku_file, sep=',', header=0, encoding='utf-8')
+    sku_list = sku_df['sku_id'].values.tolist()
+    def get_sku_one_hot_encoding(sku_list, sku_id):
+        encoding = [0] * len(sku_list)
+        if sku_id in sku_list:
+            encoding[sku_list.index(sku_id)] = 1
+        return encoding
+    # 4.convert to list
+    user = labels['user_id'].values.tolist()
+    label = labels[['is_positive', 'is_negative']].values.tolist()
+    sku = [-1 if math.isnan(i) else int(i) for i in labels['sku_id'].values.tolist()]
+    ordered_sku = [get_sku_one_hot_encoding(sku_list, sku_id) for sku_id in sku]
+    labels = zip(user, label, sku, ordered_sku)
+    # 5.dump data to pickle
     with open(outfile, 'wb') as handle:
         pickle.dump(labels, handle, protocol=pickle.HIGHEST_PROTOCOL)
-    return labels
 
 def count_order_num_per_user(infile):
     df = pd.read_csv(infile, sep=',', header=0, encoding='utf-8')
@@ -95,7 +127,15 @@ def count_order_num_per_user(infile):
         .sort_values(['count'], ascending=[False])
     print df
 
-def get_user_event_sequence(infile, outfile, keep_latest_events=200):
+def get_event_sequence(infile, outfile, keep_latest_events=200):
+    '''
+    Result:
+    [
+        (200002, array([[seq_500], [seq_499], ...,                  [seq_1]]), 500)
+        (200003, array([[seq_36], ..., [seq_1], [fake_seq], ..., [fake_seq]]),  36)
+        ...
+    ]
+    '''
     # 1.reverse the event history and keep latest events for each user
     df = pd.read_csv(infile, sep=',', header=0, encoding='utf-8')
     df = df.sort_values(['user_id', 'time', 'sku_id', 'type', 'model_id'], ascending=[True, False, False, False, False]) \
@@ -198,15 +238,17 @@ def get_user_event_sequence(infile, outfile, keep_latest_events=200):
     # 6.return sequence data
     return data
 
-def split_train_test(data_pkl, labels_pkl, train_rate=0.7):
-    with open(data_pkl, 'rb') as handle:
-        data = pickle.load(handle)
-    with open(labels_pkl, 'rb') as handle:
-        labels = pickle.load(handle)
+def split_train_test(data_pkl, labels_pkl, trainset, testset, train_rate=0.7):
+    # load pickle
+    data = load_pickle(data_pkl)
+    labels = load_pickle(labels_pkl)
+    # shuffle
     rows = zip(data, labels)
     random.shuffle(rows)
+    # dump to pickle
     cut_point = int(train_rate * len(rows))
-    return rows[:cut_point], rows[cut_point:]
+    dump_pickle(rows[:cut_point], trainset)
+    dump_pickle(rows[cut_point:], testset)
 
 class SequenceData(object):
     """ Generate sequence of data with dynamic length.
@@ -216,44 +258,63 @@ class SequenceData(object):
     dimensions). The dynamic calculation will then be perform thanks to
     'seqlen' attribute that records every actual sequence length.
     """
-    def __init__(self, dataset):
-        self.data = [data for (data, label) in dataset]
-        self.labels = [label for (data, label) in dataset]
-        #self.seqlen = []
+    def __init__(self, dataset, label_type='order'):
+        self.user   = [data[0] for (data, label) in dataset]
+        self.data   = [data[1] for (data, label) in dataset]
+        self.seqlen = [data[2] for (data, label) in dataset]
+
+        self.order_label = [label[1] for (data, label) in dataset]
+        self.sku_label   = [label[3] for (data, label) in dataset]
+
+        self.label_type = label_type
         self.batch_id = 0
 
     def next(self, batch_size):
         """ Return a batch of data. When dataset end is reached, start over.
         """
-        if self.batch_id + batch_size <= len(self.data):
-            batch_data = self.data[self.batch_id:(self.batch_id + batch_size)]
-            batch_labels = self.labels[self.batch_id:(self.batch_id + batch_size)]
+        if self.batch_id + batch_size <= len(self.user):
+            end_cursor = self.batch_id + batch_size
+            batch_user   = self.user[self.batch_id:end_cursor]
+            batch_data   = self.data[self.batch_id:end_cursor]
+            batch_seqlen = self.seqlen[self.batch_id:end_cursor]
+            if self.label_type == 'order':
+                batch_label = self.order_label[self.batch_id:end_cursor]
+            else:
+                batch_label = self.sku_label[self.batch_id:end_cursor]
             self.batch_id += batch_size
         else:
-            batch_data = self.data[self.batch_id:] + self.data[:(self.batch_id + batch_size - len(self.data))]
-            batch_labels = self.labels[self.batch_id:] + self.labels[:(self.batch_id + batch_size - len(self.data))]
-            self.batch_id = self.batch_id + batch_size - len(self.data)
-        return batch_data, batch_labels
+            end_cursor = self.batch_id + batch_size - len(self.user)
+            batch_user   = self.user[self.batch_id:] + self.user[:end_cursor]
+            batch_data   = self.data[self.batch_id:] + self.data[:end_cursor]
+            batch_seqlen = self.seqlen[self.batch_id:] + self.seqlen[:end_cursor]
+            if self.label_type == 'order':
+                batch_label = self.order_label[self.batch_id:] + self.order_label[:end_cursor]
+            else:
+                batch_label = self.sku_label[self.batch_id:] + self.sku_label[:end_cursor]
+            self.batch_id = self.batch_id + batch_size - len(self.user)
+        return batch_user, batch_data, batch_seqlen, batch_label
 
-def run_rnn(trainset, testset, scoreset=None):
+def run_rnn(trainset, testset, save_file, label_type='order'):
     # rnn parameters
     learning_rate = 0.01
     training_iters = 1000000
-    batch_size = 1000
+    batch_size = 500
     display_step = 10
     n_hidden = 64 # hidden layer num of features
-    forget_bias = 1.0
 
     # model parameters
     n_steps = len(trainset.data[0])
     n_input = len(trainset.data[0][0])
-    n_classes = len(trainset.labels[0])
+    if label_type == 'order':
+        n_classes = len(trainset.order_label[0])
+    else:
+        n_classes = len(trainset.sku_label[0])
 
     # tf Graph input
     x = tf.placeholder("float", [None, n_steps, n_input])
     y = tf.placeholder("float", [None, n_classes])
-    ## A placeholder for indicating each sequence length
-    #seqlen = tf.placeholder(tf.int32, [None])
+    # A placeholder for indicating each sequence length
+    seqlen = tf.placeholder(tf.int32, [None])
 
     # define weights
     weights = {
@@ -264,17 +325,55 @@ def run_rnn(trainset, testset, scoreset=None):
     }
 
     # define RNN model
-    def RNN(x, weights, biases):
+    def dynamicRNN(x, seqlen, weights, biases):
+        # prepare data shape to match `rnn` function requirements
+        # current data input shape: (batch_size, n_steps, n_input)
+        # required shape: `n_steps` tensors list of shape (batch_size, n_input)
+
         # unstack to get a list of 'n_steps' tensors of shape (batch_size, n_input)
         x = tf.unstack(x, n_steps, 1)
+
         # define a lstm cell with tensorflow
-        lstm_cell = rnn.BasicLSTMCell(n_hidden, forget_bias=forget_bias)
+        lstm_cell = rnn.BasicLSTMCell(n_hidden)
+
+        # get lstm cell output
+        outputs, states = rnn.static_rnn(lstm_cell, x, dtype=tf.float32, sequence_length=seqlen)
+
+        # when performing dynamic calculation, we must retrieve the last
+        # dynamically computed output, i.e., if a sequence length is 10, we need
+        # to retrieve the 10th output.
+
+        # `output` is a list of output at every timestep, we pack them in a tensor
+        # and change back dimension to [batch_size, n_step, n_input]
+        outputs = tf.stack(outputs)
+        outputs = tf.transpose(outputs, [1, 0, 2])
+        batch_size = tf.shape(outputs)[0]
+        index = tf.range(0, batch_size) * n_steps + (seqlen-1)
+        outputs = tf.gather(tf.reshape(outputs, [-1, n_hidden]), index)
+
+        # linear activation, using outputs computed above
+        return tf.matmul(outputs, weights['out']) + biases['out']
+
+    def RNN(x, seqlen, weights, biases):
+        # prepare data shape to match `rnn` function requirements
+        # current data input shape: (batch_size, n_steps, n_input)
+        # required shape: `n_steps` tensors list of shape (batch_size, n_input)
+
+        # unstack to get a list of 'n_steps' tensors of shape (batch_size, n_input)
+        x = tf.unstack(x, n_steps, 1)
+
+        # define a lstm cell with tensorflow
+        lstm_cell = rnn.BasicLSTMCell(n_hidden, forget_bias=1.0)
+
         # get lstm cell output
         outputs, states = rnn.static_rnn(lstm_cell, x, dtype=tf.float32)
+
         # linear activation, using rnn inner loop last output
         return tf.matmul(outputs[-1], weights['out']) + biases['out']
 
-    pred = RNN(x, weights, biases)
+
+    #pred = dynamicRNN(x, seqlen, weights, biases) #TODO
+    pred = RNN(x, seqlen, weights, biases)
 
     # define results
     # why use softmax, not sigmoid: just one output unit to fire with a large value
@@ -284,8 +383,8 @@ def run_rnn(trainset, testset, scoreset=None):
     cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=pred, labels=y))
 
     # define optimizer (train step)
-    #optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost)
-    optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate).minimize(cost)
+    #optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate).minimize(cost)
+    optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost)
 
     # evaluate model
     correct_pred = tf.equal(tf.argmax(pred,1), tf.argmax(y,1))
@@ -301,14 +400,14 @@ def run_rnn(trainset, testset, scoreset=None):
         step = 1
         # keep training until reach max iterations
         while step * batch_size < training_iters:
-            batch_x, batch_y = trainset.next(batch_size)
+            batch_user, batch_x, batch_seqlen, batch_y = trainset.next(batch_size)
             # run optimization op (backprop)
-            sess.run(optimizer, feed_dict={x: batch_x, y: batch_y})
+            sess.run(optimizer, feed_dict={x: batch_x, y: batch_y, seqlen: batch_seqlen})
             if step % display_step == 0:
                 # calculate batch accuracy
-                acc = sess.run(accuracy, feed_dict={x: batch_x, y: batch_y})
+                acc = sess.run(accuracy, feed_dict={x: batch_x, y: batch_y, seqlen: batch_seqlen})
                 # calculate batch loss
-                loss = sess.run(cost, feed_dict={x: batch_x, y: batch_y})
+                loss = sess.run(cost, feed_dict={x: batch_x, y: batch_y, seqlen: batch_seqlen})
                 print("Iter " + str(step*batch_size) + ", Minibatch Loss= " + \
                       "{:.6f}".format(loss) + ", Training Accuracy= " + \
                       "{:.5f}".format(acc))
@@ -316,39 +415,45 @@ def run_rnn(trainset, testset, scoreset=None):
         print("Optimization Finished!")
 
         # calculate accuracy
+        test_user = testset.user
         test_data = testset.data
-        test_label = testset.labels
-        print("Testing Accuracy:", \
-            sess.run(accuracy, feed_dict={x: test_data, y: test_label}))
-
-        if scoreset:
-            print('Return scores...')
-            data = scoreset.data
-            labels = scoreset.labels
-            results = sess.run(results, feed_dict={x: data, y: labels})
-            print(results)
-            return zip(results, labels)
+        test_seqlen = testset.seqlen
+        if label_type == 'order':
+            test_label = testset.order_label
         else:
-            print('Done')
-            return None
+            test_label = testset.sku_label
+        test_acc = sess.run(accuracy,feed_dict={x: test_data, y: test_label, seqlen: test_seqlen})
+        print("Testing Accuracy= " + "{:.5f}".format(test_acc))
 
-def save_order_prob(results, save_file):
-    with open(save_file, 'wb') as handle:
-        pickle.dump(results, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        # save scores for testset
+        test_res = sess.run(results, feed_dict={x: test_data, y: test_label, seqlen: test_seqlen})
+        test_score = zip(test_user, test_label, test_res)
+        with open(save_file, 'wb') as handle:
+            pickle.dump(test_score, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
 
 if __name__ == '__main__':
+    # ---------- prepare train+test sequence & labels ---------- #
     #separate_time_window(MASTER_DATA, MASTER_DATA_X, MASTER_DATA_Y) # 20min
-    #get_skus(MASTER_DATA, SKUS) # 3min
     #get_users(MASTER_DATA_X, USERS) # 2min
-    #labels = get_user_labels(USERS, MASTER_DATA_Y, USER_LABELS) # 0.1min
-    data = get_user_event_sequence(MASTER_DATA_X, EVENT_SEQUENCE, keep_latest_events=EVENT_LENGTH) # 51min
+    #get_skus(MASTER_DATA, SKUS) # 3min
+    #get_event_sequence(MASTER_DATA_X, TRAIN_SEQUENCE, keep_latest_events=EVENT_LENGTH) # 83min
+    #get_train_labels(USERS, SKUS, MASTER_DATA_Y, TRAIN_LABELS) # 2min
 
-    #trainset, testset = split_train_test(EVENT_SEQUENCE, USER_LABELS, 0.7)
-    #trainset = SequenceData(trainset)
-    #testset = SequenceData(testset)
+    # ---------- prepare scoring sequence & labels ---------- #
+    #get_event_sequence(MASTER_DATA, SCORE_SEQUENCE, keep_latest_events=EVENT_LENGTH) # 89min
+    #get_fake_labels() #TODO
 
-    #results = run_rnn(trainset, testset, testset) # 2min
-    #save_order_prob(results, RNN_SCORES)
+    # ---------- prepare trainset, testset & scoreset ---------- #
+    #split_train_test(TRAIN_SEQUENCE, TRAIN_LABELS, TRAINSET, TESTSET, 0.7) # 2.5min
+    #get_scoreset() #TODO
+
+    # ---------- train, test & score at user level ---------- #
+    #trainset = SequenceData(load_pickle(TRAINSET), label_type='order')
+    #testset = SequenceData(load_pickle(TESTSET), label_type='order')
+    #run_rnn(trainset, testset, TEST_SCORES, label_type='order') # 10min
+
+    # ---------- train user*sku level ---------- #
 
     # ---------- no longer needed ---------- #
     #count_order_num_per_user(MASTER_DATA_Y) # 0.1min
