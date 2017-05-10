@@ -33,6 +33,8 @@ TESTSET_USER_RESULT = os.path.join(TEMP_DIR, 'testset_user_result.pkl')
 SCORESET_USER_RESULT = os.path.join(TEMP_DIR, 'scoreset_user_result.pkl')
 TESTSET_SKU_RESULT = os.path.join(TEMP_DIR, 'testset_sku_result.pkl')
 SCORESET_SKU_RESULT = os.path.join(TEMP_DIR, 'scoreset_sku_result.pkl')
+TESTSET_RESULT = os.path.join(TEMP_DIR, 'testset_result.pkl')
+SCORESET_RESULT = os.path.join(TEMP_DIR, 'scoreset_result.pkl')
 
 # ---------- constants ---------- #
 EVENT_LENGTH = 500
@@ -447,6 +449,46 @@ def get_scoreset(score_sequence, score_labels, scoreset):
     dump_pickle(rows, scoreset)
     print '> %s users in scoreset'  % len(rows)
 
+def get_result(user_res, sku_res, sku_file, save_file):
+    # format user level result
+    user       = [i[0]    for i in user_res]
+    order_ind  = [i[1][0] for i in user_res]
+    order_prob = [i[2][0] for i in user_res]
+    df1 = pd.DataFrame({
+        'user_id'   : user,
+        'order_ind' : order_ind,
+        'order_prob': order_prob,
+    })
+    # format sku level result
+    sku_df = pd.read_csv(sku_file, sep=',', header=0, encoding='utf-8')
+    sku_list = sku_df['sku_id'].values.tolist()
+    def get_sku_id(rec):
+        if 1 in rec:
+            return sku_list[rec.index(1)]
+        else:
+            return -1
+    def guess_sku_id(rec):
+        rec = rec.tolist()
+        max_score = max(rec)
+        sku_id = sku_list[rec.index(max_score)]
+        return sku_id, max_score
+    user         = [i[0]               for i in sku_res]
+    sku_order_id = [get_sku_id(i[1])   for i in sku_res]
+    sku_guess    = [guess_sku_id(i[2]) for i in sku_res]
+    sku_guess_id    = [i[0] for i in sku_guess]
+    sku_guess_score = [i[1] for i in sku_guess]
+    df2 = pd.DataFrame({
+        'user_id'        : user,
+        'sku_order_id'   : sku_order_id,
+        'sku_guess_id'   : sku_guess_id,
+        'sku_guess_score': sku_guess_score,
+    })
+    # merge dfs
+    result = df1.merge(df2, how='left', on='user_id') \
+                .sort_values(['order_prob'], ascending=[False])
+    dump_pickle(result, save_file)
+
+
 if __name__ == '__main__':
     # ---------- prepare train+test sequence & labels ---------- #
     #separate_time_window(MASTER_DATA, MASTER_DATA_X, MASTER_DATA_Y) # 20min
@@ -470,15 +512,19 @@ if __name__ == '__main__':
     #run_rnn(trainset, testset, scoreset, TESTSET_USER_RESULT, SCORESET_USER_RESULT, label_type='order') # 5min
 
     # ---------- train, test & score at sku level ---------- #
-    # select users who have orders for trainset & testset
-    trainset = [i for i in load_pickle(TRAINSET) if i[1][2] != -1]
-    testset  = [i for i in load_pickle(TESTSET) if i[1][2] != -1]
-    scoreset = [i for i in load_pickle(SCORESET)]
-    # create objects
-    trainset = SequenceData(trainset, label_type='sku')
-    testset  = SequenceData(testset,  label_type='sku')
-    scoreset = SequenceData(scoreset, label_type='sku')
-    run_rnn(trainset, testset, scoreset, TESTSET_SKU_RESULT, SCORESET_SKU_RESULT, label_type='sku') # 6min
+    ## select users who have orders for trainset
+    #trainset = [i for i in load_pickle(TRAINSET) if i[1][2] != -1]
+    #testset  = [i for i in load_pickle(TESTSET)]
+    #scoreset = [i for i in load_pickle(SCORESET)]
+    ## create objects
+    #trainset = SequenceData(trainset, label_type='sku')
+    #testset  = SequenceData(testset,  label_type='sku')
+    #scoreset = SequenceData(scoreset, label_type='sku')
+    #run_rnn(trainset, testset, scoreset, TESTSET_SKU_RESULT, SCORESET_SKU_RESULT, label_type='sku') # 7min
+
+    # ---------- evaluation ---------- #
+    get_result(load_pickle(TESTSET_USER_RESULT), load_pickle(TESTSET_SKU_RESULT), SKUS, TESTSET_RESULT)
+    get_result(load_pickle(SCORESET_USER_RESULT), load_pickle(SCORESET_SKU_RESULT), SKUS, SCORESET_RESULT)
 
     # ---------- no longer needed ---------- #
     #count_order_num_per_user(MASTER_DATA_Y) # 0.1min
