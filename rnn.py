@@ -11,6 +11,8 @@ import datetime
 import pickle
 import random
 import math
+from sklearn.metrics import roc_curve, auc
+import matplotlib.pyplot as plt
 
 # ---------- path definition ---------- #
 MAIN_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -483,10 +485,46 @@ def get_result(user_res, sku_res, sku_file, save_file):
         'sku_guess_id'   : sku_guess_id,
         'sku_guess_score': sku_guess_score,
     })
+    def guess_right(row):
+        if row['sku_order_id'] == row['sku_guess_id']:
+            return 1
+        else:
+            return 0
+    df2['guess_right'] = df2.apply(lambda row:guess_right(row), axis=1)
     # merge dfs
     result = df1.merge(df2, how='left', on='user_id') \
                 .sort_values(['order_prob'], ascending=[False])
     dump_pickle(result, save_file)
+
+def eval_result(df):
+    def plot_roc(prob, ind):
+        # params
+        lw = 2
+        # calculate fpr, tpr, auc
+        fpr, tpr, thres = roc_curve(ind, prob, pos_label=1)
+        roc_auc = auc(fpr, tpr)
+        # plot roc curve
+        plt.figure()
+        plt.plot(fpr, tpr, color='darkorange', lw=lw, label='ROC Curve (auc=%0.2f)' % roc_auc)
+        plt.plot([0,1], [0,1], color='navy', lw=lw, linestyle='--')
+        plt.xlim([0.0, 1.0])
+        plt.ylim([0.0, 1.0])
+        plt.xlabel('False Positive Rate')
+        plt.ylabel('True Positive Rate')
+        plt.legend(loc='lower right')
+        plt.show()
+
+    # check order prob
+    prob = df['order_prob'].values.tolist()
+    ind  = df['order_ind'].values.tolist()
+    plot_roc(prob, ind)
+
+    # check sku prob
+    df2 = df[df['sku_order_id'] != -1] \
+            .sort_values(['sku_guess_score'], ascending=[False])
+    prob = df2['sku_guess_score'].values.tolist()
+    ind  = df2['guess_right'].values.tolist()
+    plot_roc(prob, ind)
 
 
 if __name__ == '__main__':
@@ -523,8 +561,9 @@ if __name__ == '__main__':
     #run_rnn(trainset, testset, scoreset, TESTSET_SKU_RESULT, SCORESET_SKU_RESULT, label_type='sku') # 7min
 
     # ---------- evaluation ---------- #
-    get_result(load_pickle(TESTSET_USER_RESULT), load_pickle(TESTSET_SKU_RESULT), SKUS, TESTSET_RESULT)
-    get_result(load_pickle(SCORESET_USER_RESULT), load_pickle(SCORESET_SKU_RESULT), SKUS, SCORESET_RESULT)
+    #get_result(load_pickle(TESTSET_USER_RESULT), load_pickle(TESTSET_SKU_RESULT), SKUS, TESTSET_RESULT)
+    #get_result(load_pickle(SCORESET_USER_RESULT), load_pickle(SCORESET_SKU_RESULT), SKUS, SCORESET_RESULT)
+    eval_result(load_pickle(TESTSET_RESULT))
 
     # ---------- no longer needed ---------- #
     #count_order_num_per_user(MASTER_DATA_Y) # 0.1min
