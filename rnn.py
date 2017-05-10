@@ -28,13 +28,20 @@ TRAIN_SEQUENCE = os.path.join(TEMP_DIR, 'train_sequence.pkl')
 TRAIN_LABELS = os.path.join(TEMP_DIR, 'train_labels.pkl')
 SCORE_SEQUENCE = os.path.join(TEMP_DIR, 'score_sequence.pkl')
 SCORE_LABELS = os.path.join(TEMP_DIR, 'score_labels.pkl')
+
 TRAINSET = os.path.join(TEMP_DIR, 'trainset.pkl')
 TESTSET = os.path.join(TEMP_DIR, 'testset.pkl')
 SCORESET = os.path.join(TEMP_DIR, 'scoreset.pkl')
+
+TRAINSET_USER_RESULT = os.path.join(TEMP_DIR, 'trainset_user_result.pkl')
 TESTSET_USER_RESULT = os.path.join(TEMP_DIR, 'testset_user_result.pkl')
 SCORESET_USER_RESULT = os.path.join(TEMP_DIR, 'scoreset_user_result.pkl')
+
+TRAINSET_SKU_RESULT = os.path.join(TEMP_DIR, 'trainset_sku_result.pkl')
 TESTSET_SKU_RESULT = os.path.join(TEMP_DIR, 'testset_sku_result.pkl')
 SCORESET_SKU_RESULT = os.path.join(TEMP_DIR, 'scoreset_sku_result.pkl')
+
+TRAINSET_RESULT = os.path.join(TEMP_DIR, 'trainset_result.pkl')
 TESTSET_RESULT = os.path.join(TEMP_DIR, 'testset_result.pkl')
 SCORESET_RESULT = os.path.join(TEMP_DIR, 'scoreset_result.pkl')
 
@@ -307,7 +314,7 @@ class SequenceData(object):
             self.batch_id = self.batch_id + batch_size - len(self.user)
         return batch_user, batch_data, batch_seqlen, batch_label
 
-def run_rnn(trainset, testset, scoreset, testset_result, scoreset_result, label_type='order'):
+def run_rnn(trainset, testset, scoreset, trainset_result, testset_result, scoreset_result, label_type='order'):
     # rnn parameters
     learning_rate = 0.01
     training_iters = 1000000
@@ -438,6 +445,7 @@ def run_rnn(trainset, testset, scoreset, testset_result, scoreset_result, label_
             score = sess.run(results, feed_dict={x: data, y: label, seqlen: seqlength})
             res = zip(user, label, score)
             dump_pickle(res, save_file)
+        save_result(trainset, trainset_result)
         save_result(testset, testset_result)
         save_result(scoreset, scoreset_result)
 
@@ -520,11 +528,12 @@ def eval_result(df):
     plot_roc(prob, ind)
 
     # check sku prob
-    df2 = df[df['sku_order_id'] != -1] \
+    df2 = df[df['sku_order_id'] > 0] \
             .sort_values(['sku_guess_score'], ascending=[False])
-    prob = df2['sku_guess_score'].values.tolist()
-    ind  = df2['guess_right'].values.tolist()
-    plot_roc(prob, ind)
+
+    prob2 = df2['sku_guess_score'].values.tolist()
+    ind2  = df2['guess_right'].values.tolist()
+    plot_roc(prob2, ind2)
 
 
 if __name__ == '__main__':
@@ -547,7 +556,7 @@ if __name__ == '__main__':
     #trainset = SequenceData(load_pickle(TRAINSET), label_type='order')
     #testset  = SequenceData(load_pickle(TESTSET),  label_type='order')
     #scoreset = SequenceData(load_pickle(SCORESET), label_type='order')
-    #run_rnn(trainset, testset, scoreset, TESTSET_USER_RESULT, SCORESET_USER_RESULT, label_type='order') # 5min
+    #run_rnn(trainset, testset, scoreset, TRAINSET_USER_RESULT, TESTSET_USER_RESULT, SCORESET_USER_RESULT, label_type='order') # 5min
 
     # ---------- train, test & score at sku level ---------- #
     ## select users who have orders for trainset
@@ -558,11 +567,14 @@ if __name__ == '__main__':
     #trainset = SequenceData(trainset, label_type='sku')
     #testset  = SequenceData(testset,  label_type='sku')
     #scoreset = SequenceData(scoreset, label_type='sku')
-    #run_rnn(trainset, testset, scoreset, TESTSET_SKU_RESULT, SCORESET_SKU_RESULT, label_type='sku') # 7min
+    #run_rnn(trainset, testset, scoreset, TRAINSET_SKU_RESULT, TESTSET_SKU_RESULT, SCORESET_SKU_RESULT, label_type='sku') # 7min
 
     # ---------- evaluation ---------- #
+    #get_result(load_pickle(TRAINSET_USER_RESULT), load_pickle(TRAINSET_SKU_RESULT), SKUS, TRAINSET_RESULT)
     #get_result(load_pickle(TESTSET_USER_RESULT), load_pickle(TESTSET_SKU_RESULT), SKUS, TESTSET_RESULT)
     #get_result(load_pickle(SCORESET_USER_RESULT), load_pickle(SCORESET_SKU_RESULT), SKUS, SCORESET_RESULT)
+
+    eval_result(load_pickle(TRAINSET_RESULT))
     eval_result(load_pickle(TESTSET_RESULT))
 
     # ---------- no longer needed ---------- #
