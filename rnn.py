@@ -12,21 +12,27 @@ import pickle
 import random
 import math
 
-# ---------- table definition ---------- #
+# ---------- path definition ---------- #
 MAIN_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMP_DIR = os.path.join(MAIN_DIR, 'temp')
-MODEL_DIR = os.path.join(MAIN_DIR, 'model')
+
+# ---------- file definition ---------- #
 MASTER_DATA = os.path.join(TEMP_DIR, 'master.csv')
 MASTER_DATA_X = os.path.join(TEMP_DIR, 'master_x.csv')
 MASTER_DATA_Y = os.path.join(TEMP_DIR, 'master_y.csv')
 SKUS = os.path.join(TEMP_DIR, 'sku_list.csv')
 USERS = os.path.join(TEMP_DIR, 'user_list.csv')
-TRAIN_LABELS = os.path.join(TEMP_DIR, 'train_labels.pkl')
 TRAIN_SEQUENCE = os.path.join(TEMP_DIR, 'train_sequence.pkl')
+TRAIN_LABELS = os.path.join(TEMP_DIR, 'train_labels.pkl')
 SCORE_SEQUENCE = os.path.join(TEMP_DIR, 'score_sequence.pkl')
-TEST_SCORES = os.path.join(TEMP_DIR, 'test_scores.pkl')
+SCORE_LABELS = os.path.join(TEMP_DIR, 'score_labels.pkl')
 TRAINSET = os.path.join(TEMP_DIR, 'trainset.pkl')
 TESTSET = os.path.join(TEMP_DIR, 'testset.pkl')
+SCORESET = os.path.join(TEMP_DIR, 'scoreset.pkl')
+TESTSET_USER_RESULT = os.path.join(TEMP_DIR, 'testset_user_result.pkl')
+SCORESET_USER_RESULT = os.path.join(TEMP_DIR, 'scoreset_user_result.pkl')
+TESTSET_SKU_RESULT = os.path.join(TEMP_DIR, 'testset_sku_result.pkl')
+SCORESET_SKU_RESULT = os.path.join(TEMP_DIR, 'scoreset_sku_result.pkl')
 
 # ---------- constants ---------- #
 EVENT_LENGTH = 500
@@ -249,6 +255,9 @@ def split_train_test(data_pkl, labels_pkl, trainset, testset, train_rate=0.7):
     cut_point = int(train_rate * len(rows))
     dump_pickle(rows[:cut_point], trainset)
     dump_pickle(rows[cut_point:], testset)
+    # print info
+    print '> %s users in trainset' % len(rows[:cut_point])
+    print '> %s users in testset'  % len(rows[cut_point:])
 
 class SequenceData(object):
     """ Generate sequence of data with dynamic length.
@@ -294,7 +303,7 @@ class SequenceData(object):
             self.batch_id = self.batch_id + batch_size - len(self.user)
         return batch_user, batch_data, batch_seqlen, batch_label
 
-def run_rnn(trainset, testset, save_file, label_type='order'):
+def run_rnn(trainset, testset, scoreset, testset_result, scoreset_result, label_type='order'):
     # rnn parameters
     learning_rate = 0.01
     training_iters = 1000000
@@ -371,7 +380,6 @@ def run_rnn(trainset, testset, save_file, label_type='order'):
         # linear activation, using rnn inner loop last output
         return tf.matmul(outputs[-1], weights['out']) + biases['out']
 
-
     #pred = dynamicRNN(x, seqlen, weights, biases) #TODO
     pred = RNN(x, seqlen, weights, biases)
 
@@ -414,23 +422,30 @@ def run_rnn(trainset, testset, save_file, label_type='order'):
             step += 1
         print("Optimization Finished!")
 
-        # calculate accuracy
-        test_user = testset.user
-        test_data = testset.data
-        test_seqlen = testset.seqlen
-        if label_type == 'order':
-            test_label = testset.order_label
-        else:
-            test_label = testset.sku_label
-        test_acc = sess.run(accuracy,feed_dict={x: test_data, y: test_label, seqlen: test_seqlen})
-        print("Testing Accuracy= " + "{:.5f}".format(test_acc))
+        # save result
+        def save_result(dataset, save_file):
+            user = dataset.user
+            data = dataset.data
+            seqlength = dataset.seqlen
+            if label_type == 'order':
+                label = dataset.order_label
+            else:
+                label = dataset.sku_label
+            score = sess.run(results, feed_dict={x: data, y: label, seqlen: seqlength})
+            res = zip(user, label, score)
+            dump_pickle(res, save_file)
+        save_result(testset, testset_result)
+        save_result(scoreset, scoreset_result)
 
-        # save scores for testset
-        test_res = sess.run(results, feed_dict={x: test_data, y: test_label, seqlen: test_seqlen})
-        test_score = zip(test_user, test_label, test_res)
-        with open(save_file, 'wb') as handle:
-            pickle.dump(test_score, handle, protocol=pickle.HIGHEST_PROTOCOL)
+def get_fake_labels(score_sequence, train_labels, save_file):
+    fake_label = train_labels[0][1:]
+    score_labels = [(i[0],) + fake_label for i in score_sequence]
+    dump_pickle(score_labels, save_file)
 
+def get_scoreset(score_sequence, score_labels, scoreset):
+    rows = zip(load_pickle(score_sequence), load_pickle(score_labels))
+    dump_pickle(rows, scoreset)
+    print '> %s users in scoreset'  % len(rows)
 
 if __name__ == '__main__':
     # ---------- prepare train+test sequence & labels ---------- #
@@ -442,18 +457,28 @@ if __name__ == '__main__':
 
     # ---------- prepare scoring sequence & labels ---------- #
     #get_event_sequence(MASTER_DATA, SCORE_SEQUENCE, keep_latest_events=EVENT_LENGTH) # 89min
-    #get_fake_labels() #TODO
+    #get_fake_labels(load_pickle(SCORE_SEQUENCE), load_pickle(TRAIN_LABELS), SCORE_LABELS) # 1min
 
     # ---------- prepare trainset, testset & scoreset ---------- #
-    #split_train_test(TRAIN_SEQUENCE, TRAIN_LABELS, TRAINSET, TESTSET, 0.7) # 2.5min
-    #get_scoreset() #TODO
+    #split_train_test(TRAIN_SEQUENCE, TRAIN_LABELS, TRAINSET, TESTSET, 0.5) # 2.5min
+    #get_scoreset(SCORE_SEQUENCE, SCORE_LABELS, SCORESET) # 0.1min
 
     # ---------- train, test & score at user level ---------- #
     #trainset = SequenceData(load_pickle(TRAINSET), label_type='order')
-    #testset = SequenceData(load_pickle(TESTSET), label_type='order')
-    #run_rnn(trainset, testset, TEST_SCORES, label_type='order') # 10min
+    #testset  = SequenceData(load_pickle(TESTSET),  label_type='order')
+    #scoreset = SequenceData(load_pickle(SCORESET), label_type='order')
+    #run_rnn(trainset, testset, scoreset, TESTSET_USER_RESULT, SCORESET_USER_RESULT, label_type='order') # 5min
 
-    # ---------- train user*sku level ---------- #
+    # ---------- train, test & score at sku level ---------- #
+    # select users who have orders for trainset & testset
+    trainset = [i for i in load_pickle(TRAINSET) if i[1][2] != -1]
+    testset  = [i for i in load_pickle(TESTSET) if i[1][2] != -1]
+    scoreset = [i for i in load_pickle(SCORESET)]
+    # create objects
+    trainset = SequenceData(trainset, label_type='sku')
+    testset  = SequenceData(testset,  label_type='sku')
+    scoreset = SequenceData(scoreset, label_type='sku')
+    run_rnn(trainset, testset, scoreset, TESTSET_SKU_RESULT, SCORESET_SKU_RESULT, label_type='sku') # 6min
 
     # ---------- no longer needed ---------- #
     #count_order_num_per_user(MASTER_DATA_Y) # 0.1min
