@@ -317,8 +317,9 @@ class SequenceData(object):
 def run_rnn(trainset, testset, scoreset, trainset_result, testset_result, scoreset_result, label_type='order'):
     # rnn parameters
     learning_rate = 0.01
-    training_iters = 1000000
-    batch_size = 500
+    #training_iters = 100000000 TODO
+    training_iters = 10000000
+    batch_size = 128
     display_step = 10
     n_hidden = 64 # hidden layer num of features
 
@@ -364,7 +365,7 @@ def run_rnn(trainset, testset, scoreset, trainset_result, testset_result, scores
         # to retrieve the 10th output.
 
         # `output` is a list of output at every timestep, we pack them in a tensor
-        # and change back dimension to [batch_size, n_step, n_input]
+        # and change back dimension to [batch_size, n_step, n_hidden]
         outputs = tf.stack(outputs)
         outputs = tf.transpose(outputs, [1, 0, 2])
         batch_size = tf.shape(outputs)[0]
@@ -402,8 +403,8 @@ def run_rnn(trainset, testset, scoreset, trainset_result, testset_result, scores
     cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=pred, labels=y))
 
     # define optimizer (train step)
-    #optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate).minimize(cost)
-    optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost)
+    optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate).minimize(cost)
+    #optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost)
 
     # evaluate model
     correct_pred = tf.equal(tf.argmax(pred,1), tf.argmax(y,1))
@@ -525,6 +526,7 @@ def eval_result(df):
     # check order prob
     prob = df['order_prob'].values.tolist()
     ind  = df['order_ind'].values.tolist()
+    print '> Plot order prob ROC (%s records)...' % len(df)
     plot_roc(prob, ind)
 
     # check sku prob
@@ -533,6 +535,7 @@ def eval_result(df):
 
     prob2 = df2['sku_guess_score'].values.tolist()
     ind2  = df2['guess_right'].values.tolist()
+    print '> Plot sku prob ROC (%s records)...' % len(df2)
     plot_roc(prob2, ind2)
 
 
@@ -556,7 +559,7 @@ if __name__ == '__main__':
     #trainset = SequenceData(load_pickle(TRAINSET), label_type='order')
     #testset  = SequenceData(load_pickle(TESTSET),  label_type='order')
     #scoreset = SequenceData(load_pickle(SCORESET), label_type='order')
-    #run_rnn(trainset, testset, scoreset, TRAINSET_USER_RESULT, TESTSET_USER_RESULT, SCORESET_USER_RESULT, label_type='order') # 5min
+    #run_rnn(trainset, testset, scoreset, TRAINSET_USER_RESULT, TESTSET_USER_RESULT, SCORESET_USER_RESULT, label_type='order') # 440min
 
     # ---------- train, test & score at sku level ---------- #
     ## select users who have orders for trainset
@@ -567,7 +570,7 @@ if __name__ == '__main__':
     #trainset = SequenceData(trainset, label_type='sku')
     #testset  = SequenceData(testset,  label_type='sku')
     #scoreset = SequenceData(scoreset, label_type='sku')
-    #run_rnn(trainset, testset, scoreset, TRAINSET_SKU_RESULT, TESTSET_SKU_RESULT, SCORESET_SKU_RESULT, label_type='sku') # 7min
+    #run_rnn(trainset, testset, scoreset, TRAINSET_SKU_RESULT, TESTSET_SKU_RESULT, SCORESET_SKU_RESULT, label_type='sku') # 164min
 
     # ---------- evaluation ---------- #
     #get_result(load_pickle(TRAINSET_USER_RESULT), load_pickle(TRAINSET_SKU_RESULT), SKUS, TRAINSET_RESULT)
