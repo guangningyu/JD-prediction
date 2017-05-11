@@ -318,7 +318,7 @@ def run_rnn(trainset, testset, scoreset, trainset_result, testset_result, scores
     # rnn parameters
     learning_rate = 0.01
     #training_iters = 100000000 TODO
-    training_iters = 10000000
+    training_iters = 1000000
     batch_size = 128
     display_step = 10
     n_hidden = 64 # hidden layer num of features
@@ -392,8 +392,8 @@ def run_rnn(trainset, testset, scoreset, trainset_result, testset_result, scores
         # linear activation, using rnn inner loop last output
         return tf.matmul(outputs[-1], weights['out']) + biases['out']
 
-    #pred = dynamicRNN(x, seqlen, weights, biases) #TODO
-    pred = RNN(x, seqlen, weights, biases)
+    pred = dynamicRNN(x, seqlen, weights, biases)
+    #pred = RNN(x, seqlen, weights, biases)
 
     # define results
     # why use softmax, not sigmoid: just one output unit to fire with a large value
@@ -439,20 +439,32 @@ def run_rnn(trainset, testset, scoreset, trainset_result, testset_result, scores
         print("Optimization Finished!")
 
         # save result
-        def save_result(dataset, save_file):
-            user = dataset.user
-            data = dataset.data
-            seqlength = dataset.seqlen
-            if label_type == 'order':
-                label = dataset.order_label
-            else:
-                label = dataset.sku_label
-            score = sess.run(results, feed_dict={x: data, y: label, seqlen: seqlength})
-            res = zip(user, label, score)
-            dump_pickle(res, save_file)
-        save_result(trainset, trainset_result)
-        save_result(testset, testset_result)
-        save_result(scoreset, scoreset_result)
+        def save_result(dataset, save_file, batch_size=batch_size):
+            # create an empty list to contain output
+            res = []
+            # separate dataset to partitions, to avoid the out-of-memory issue
+            rec_num = len(dataset.user)
+            partition_num = int(math.ceil(1.0*rec_num/batch_size))
+            # calculate results for each partition
+            for i in range(partition_num):
+                user, data, seqlength, label = dataset.next(batch_size)
+                score = sess.run(results, feed_dict={x: data, y: label, seqlen: seqlength})
+                part_res = zip(user, label, score)
+                res += part_res
+            # remove duplicated users
+            uniq_res = []
+            user_set = set([])
+            for i in res:
+                user_id = i[0]
+                if user_id not in user_set:
+                    uniq_res.append(i)
+                user_set.add(user_id)
+            # dump to pickle
+            dump_pickle(uniq_res, save_file)
+
+        save_result(trainset, trainset_result, batch_size)
+        save_result(testset, testset_result, batch_size)
+        save_result(scoreset, scoreset_result, batch_size)
 
 def get_fake_labels(score_sequence, train_labels, save_file):
     fake_label = train_labels[0][1:]
@@ -563,7 +575,7 @@ if __name__ == '__main__':
     #trainset = SequenceData(load_pickle(TRAINSET), label_type='order')
     #testset  = SequenceData(load_pickle(TESTSET),  label_type='order')
     #scoreset = SequenceData(load_pickle(SCORESET), label_type='order')
-    #run_rnn(trainset, testset, scoreset, TRAINSET_USER_RESULT, TESTSET_USER_RESULT, SCORESET_USER_RESULT, label_type='order') # 440min
+    #run_rnn(trainset, testset, scoreset, TRAINSET_USER_RESULT, TESTSET_USER_RESULT, SCORESET_USER_RESULT, label_type='order') # 38min
 
     # ---------- train, test & score at sku level ---------- #
     ## select users who have orders for trainset
@@ -574,15 +586,15 @@ if __name__ == '__main__':
     #trainset = SequenceData(trainset, label_type='sku')
     #testset  = SequenceData(testset,  label_type='sku')
     #scoreset = SequenceData(scoreset, label_type='sku')
-    #run_rnn(trainset, testset, scoreset, TRAINSET_SKU_RESULT, TESTSET_SKU_RESULT, SCORESET_SKU_RESULT, label_type='sku') # 164min
+    #run_rnn(trainset, testset, scoreset, TRAINSET_SKU_RESULT, TESTSET_SKU_RESULT, SCORESET_SKU_RESULT, label_type='sku') # 39min
 
     # ---------- evaluation ---------- #
     #get_result(load_pickle(TRAINSET_USER_RESULT), load_pickle(TRAINSET_SKU_RESULT), SKUS, TRAINSET_RESULT)
     #get_result(load_pickle(TESTSET_USER_RESULT), load_pickle(TESTSET_SKU_RESULT), SKUS, TESTSET_RESULT)
     #get_result(load_pickle(SCORESET_USER_RESULT), load_pickle(SCORESET_SKU_RESULT), SKUS, SCORESET_RESULT)
 
-    eval_result(load_pickle(TRAINSET_RESULT))
-    eval_result(load_pickle(TESTSET_RESULT))
+    #eval_result(load_pickle(TRAINSET_RESULT))
+    #eval_result(load_pickle(TESTSET_RESULT))
 
     # ---------- no longer needed ---------- #
     #count_order_num_per_user(MASTER_DATA_Y) # 0.1min
