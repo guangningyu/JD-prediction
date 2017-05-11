@@ -164,7 +164,7 @@ def get_event_sequence(infile, outfile, keep_latest_events=200):
     def refactor_seq(seq, max_length):
         def padding(list):
             length = len(list)
-            list += [-999999 for i in range(max_length - length)]
+            list += [0 for i in range(max_length - length)]
             return list
         s = []
         feature_num = len(seq[0])
@@ -202,7 +202,7 @@ def get_event_sequence(infile, outfile, keep_latest_events=200):
         timestamp = int(timestamp.strftime('%s'))
         till_obs = max_timestamp - timestamp
         if last_user_id != this_user_id: # for the very first record
-            till_next = 99999999 # set it to a very large number, since there's no next action
+            till_next = 9999999 # set it to a very large number, since there's no next action
         else:
             till_next = next_timestamp - timestamp
         next_timestamp = timestamp
