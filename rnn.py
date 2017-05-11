@@ -413,8 +413,12 @@ def run_rnn(trainset, testset, scoreset, trainset_result, testset_result, scores
     # initialzing the variables
     init = tf.global_variables_initializer()
 
+    # set configuration
+    config = tf.ConfigProto()
+    config.gpu_options.allow_growth = True
+
     # launch the graph
-    with tf.Session() as sess:
+    with tf.Session(config=config) as sess:
         print('> Start training...')
         sess.run(init)
         step = 1
