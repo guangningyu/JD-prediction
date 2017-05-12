@@ -45,6 +45,7 @@ TRAINSET_RESULT = os.path.join(TEMP_DIR, 'trainset_result.pkl')
 TESTSET_RESULT = os.path.join(TEMP_DIR, 'testset_result.pkl')
 SCORESET_RESULT = os.path.join(TEMP_DIR, 'scoreset_result.pkl')
 
+SCORE_FILE = os.path.join(TEMP_DIR, 'score.csv')
 OUTPUT_FILE = os.path.join(TEMP_DIR, 'upload.csv')
 
 # ---------- constants ---------- #
@@ -561,7 +562,7 @@ def eval_result(df):
     print '> Plot sku prob ROC (%s records)...' % len(df2)
     plot_roc(prob2, ind2)
 
-def gen_upload_result(trainset, testset, scoreset, save_file):
+def gen_upload_result(trainset, testset, scoreset, save_file, score_file):
     def cal_precision_recall(dataset, cutoff):
         # select dataset according to cutoff
         dataset = dataset.sort_values(['order_prob'], ascending=[False])
@@ -607,6 +608,11 @@ def gen_upload_result(trainset, testset, scoreset, save_file):
         f1, f2, f = cal_precision_recall(testset, cutoff)
         results.append((cutoff, f1, f2 ,f))
     optimal_cutoff = select_cutoff(results)
+
+    # generate score file
+    score_df = scoreset[['user_id', 'order_prob', 'sku_guess_id', 'sku_guess_score']] \
+                .sort_values(['order_prob'], ascending=[False]) \
+                .to_csv(score_file, sep=',', index=False, encoding='GBK')
 
     # generate upload file
     scoreset = scoreset.sort_values(['order_prob'], ascending=[False])
@@ -656,7 +662,7 @@ if __name__ == '__main__':
     #eval_result(load_pickle(TRAINSET_RESULT))
     #eval_result(load_pickle(TESTSET_RESULT))
 
-    #gen_upload_result(load_pickle(TRAINSET_RESULT), load_pickle(TESTSET_RESULT), load_pickle(SCORESET_RESULT), OUTPUT_FILE)
+    #gen_upload_result(load_pickle(TRAINSET_RESULT), load_pickle(TESTSET_RESULT), load_pickle(SCORESET_RESULT), OUTPUT_FILE, SCORE_FILE)
 
     # ---------- no longer needed ---------- #
     #count_order_num_per_user(MASTER_DATA_Y) # 0.1min
