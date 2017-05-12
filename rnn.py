@@ -75,6 +75,7 @@ def separate_time_window(infile, outfile_x, outfile_y):
     y.to_csv(outfile_y, sep=',', index=False, encoding='utf-8')
 
 def get_skus(infile, outfile):
+    # keep top 100 popular sku
     df = pd.read_csv(infile, sep=',', header=0, encoding='utf-8')
     df = df[(df['category']==8) & (df['type']==4)]
     df = df[['sku_id']] \
@@ -82,6 +83,8 @@ def get_skus(infile, outfile):
         .size() \
         .to_frame(name = 'count') \
         .reset_index() \
+        .sort_values(['count'], ascending=[False]) \
+        .head(100) \
         .sort_values(['sku_id'], ascending=[True])
     df.to_csv(outfile, sep=',', index=False, encoding='utf-8')
 
@@ -318,7 +321,7 @@ def run_rnn(trainset, testset, scoreset, trainset_result, testset_result, scores
     # rnn parameters
     learning_rate = 0.01
     #training_iters = 100000000 TODO
-    training_iters = 1000000
+    training_iters = 5000000
     batch_size = 128
     display_step = 10
     n_hidden = 64 # hidden layer num of features
@@ -486,6 +489,7 @@ def get_result(user_res, sku_res, sku_file, save_file):
         'order_ind' : order_ind,
         'order_prob': order_prob,
     })
+
     # format sku level result
     sku_df = pd.read_csv(sku_file, sep=',', header=0, encoding='utf-8')
     sku_list = sku_df['sku_id'].values.tolist()
@@ -516,6 +520,7 @@ def get_result(user_res, sku_res, sku_file, save_file):
         else:
             return 0
     df2['guess_right'] = df2.apply(lambda row:guess_right(row), axis=1)
+
     # merge dfs
     result = df1.merge(df2, how='left', on='user_id') \
                 .sort_values(['order_prob'], ascending=[False])
@@ -559,7 +564,7 @@ if __name__ == '__main__':
     # ---------- prepare train+test sequence & labels ---------- #
     #separate_time_window(MASTER_DATA, MASTER_DATA_X, MASTER_DATA_Y) # 20min
     #get_users(MASTER_DATA_X, USERS) # 2min
-    #get_skus(MASTER_DATA, SKUS) # 3min
+    #get_skus(MASTER_DATA_Y, SKUS) # 3min
     #get_event_sequence(MASTER_DATA_X, TRAIN_SEQUENCE, keep_latest_events=EVENT_LENGTH) # 83min
     #get_train_labels(USERS, SKUS, MASTER_DATA_Y, TRAIN_LABELS) # 2min
 
@@ -575,18 +580,18 @@ if __name__ == '__main__':
     #trainset = SequenceData(load_pickle(TRAINSET), label_type='order')
     #testset  = SequenceData(load_pickle(TESTSET),  label_type='order')
     #scoreset = SequenceData(load_pickle(SCORESET), label_type='order')
-    #run_rnn(trainset, testset, scoreset, TRAINSET_USER_RESULT, TESTSET_USER_RESULT, SCORESET_USER_RESULT, label_type='order') # 38min
+    #run_rnn(trainset, testset, scoreset, TRAINSET_USER_RESULT, TESTSET_USER_RESULT, SCORESET_USER_RESULT, label_type='order') # 174min for 5000000 iters
 
     # ---------- train, test & score at sku level ---------- #
-    ## select users who have orders for trainset
-    #trainset = [i for i in load_pickle(TRAINSET) if i[1][2] != -1]
+    ## select users who have orders and the ordered sku_id is in sku list
+    #trainset = [i for i in load_pickle(TRAINSET) if sum(i[1][3]) > 0]
     #testset  = [i for i in load_pickle(TESTSET)]
     #scoreset = [i for i in load_pickle(SCORESET)]
     ## create objects
     #trainset = SequenceData(trainset, label_type='sku')
     #testset  = SequenceData(testset,  label_type='sku')
     #scoreset = SequenceData(scoreset, label_type='sku')
-    #run_rnn(trainset, testset, scoreset, TRAINSET_SKU_RESULT, TESTSET_SKU_RESULT, SCORESET_SKU_RESULT, label_type='sku') # 39min
+    #run_rnn(trainset, testset, scoreset, TRAINSET_SKU_RESULT, TESTSET_SKU_RESULT, SCORESET_SKU_RESULT, label_type='sku') # 172min for 5000000 iters
 
     # ---------- evaluation ---------- #
     #get_result(load_pickle(TRAINSET_USER_RESULT), load_pickle(TRAINSET_SKU_RESULT), SKUS, TRAINSET_RESULT)
