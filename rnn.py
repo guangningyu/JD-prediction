@@ -45,6 +45,8 @@ TRAINSET_RESULT = os.path.join(TEMP_DIR, 'trainset_result.pkl')
 TESTSET_RESULT = os.path.join(TEMP_DIR, 'testset_result.pkl')
 SCORESET_RESULT = os.path.join(TEMP_DIR, 'scoreset_result.pkl')
 
+OUTPUT_FILE = os.path.join(TEMP_DIR, 'upload.csv')
+
 # ---------- constants ---------- #
 EVENT_LENGTH = 500
 
@@ -559,6 +561,59 @@ def eval_result(df):
     print '> Plot sku prob ROC (%s records)...' % len(df2)
     plot_roc(prob2, ind2)
 
+def gen_upload_result(trainset, testset, scoreset, save_file):
+    def cal_precision_recall(dataset, cutoff):
+        # select dataset according to cutoff
+        dataset = dataset.sort_values(['order_prob'], ascending=[False])
+        guessset = dataset[dataset['order_prob'] >= cutoff]
+        # count values
+        total_order       = sum(dataset['order_ind'].values.tolist())
+        total_guess       = len(guessset)
+        guess_order_right = max(1, sum(guessset['order_ind'].values.tolist()))
+        guess_sku_right   = max(1, sum([1 for i in guessset['guess_right'].values.tolist() if i > 0.0]))
+        # calculate precision and recall
+        if total_guess > 0:
+            f1_pre = 1.0 * guess_order_right / total_guess
+            f1_rec = 1.0 * guess_order_right / total_order
+            f2_pre = 1.0 * guess_sku_right   / total_guess
+            f2_rec = 1.0 * guess_sku_right   / total_order
+            # F1 value
+            f1 = 6.0 * f1_rec * f1_pre / (5.0 * f1_rec + 1.0 * f1_pre)
+            f2 = 5.0 * f2_rec * f2_pre / (2.0 * f2_rec + 3.0 * f2_pre)
+            f  = 0.4 * f1 + 0.6 * f2
+            return f1, f2, f
+        else:
+            return 0.0, 0.0, 0.0
+
+    def select_cutoff(results):
+        cutoff_list = [i[0] for i in results]
+        f1_list     = [i[1] for i in results]
+        f2_list     = [i[2] for i in results]
+        f_list      = [i[3] for i in results]
+        max_idx = f_list.index(max(f_list))
+        optimal_cutoff = cutoff_list[max_idx]
+        print '> The cutoff is %s, where:' % optimal_cutoff
+        print '> f1 score: %s'             % f1_list[max_idx]
+        print '> f2 score: %s'             % f2_list[max_idx]
+        print '> f  score: %s'             % f_list[max_idx]
+        return optimal_cutoff
+
+    # calculate f score and select optimal cutoff
+    interval = 0.0001
+    loop_num = int(1.0 / interval)
+    results = []
+    for i in reversed(range(1, loop_num+1)):
+        cutoff = 1.0 * i / loop_num
+        f1, f2, f = cal_precision_recall(testset, cutoff)
+        results.append((cutoff, f1, f2 ,f))
+    optimal_cutoff = select_cutoff(results)
+
+    # generate upload file
+    scoreset = scoreset.sort_values(['order_prob'], ascending=[False])
+    scoreset = scoreset[scoreset['order_prob'] >= optimal_cutoff]
+    scoreset = scoreset[['user_id', 'sku_guess_id']] \
+                .rename(columns={'sku_guess_id': 'sku_id'})
+    scoreset.to_csv(save_file, sep=',', index=False, encoding='GBK')
 
 if __name__ == '__main__':
     # ---------- prepare train+test sequence & labels ---------- #
@@ -600,6 +655,8 @@ if __name__ == '__main__':
 
     #eval_result(load_pickle(TRAINSET_RESULT))
     #eval_result(load_pickle(TESTSET_RESULT))
+
+    #gen_upload_result(load_pickle(TRAINSET_RESULT), load_pickle(TESTSET_RESULT), load_pickle(SCORESET_RESULT), OUTPUT_FILE)
 
     # ---------- no longer needed ---------- #
     #count_order_num_per_user(MASTER_DATA_Y) # 0.1min
