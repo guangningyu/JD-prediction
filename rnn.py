@@ -48,6 +48,9 @@ SCORESET_RESULT = os.path.join(TEMP_DIR, 'scoreset_result.pkl')
 SCORE_FILE = os.path.join(TEMP_DIR, 'score.csv')
 OUTPUT_FILE = os.path.join(TEMP_DIR, 'upload.csv')
 
+USER_STEP_RESULT = os.path.join(TEMP_DIR, 'user_step_result.pkl')
+SKU_STEP_RESULT = os.path.join(TEMP_DIR, 'sku_step_result.pkl')
+
 # ---------- constants ---------- #
 EVENT_LENGTH = 500
 
@@ -320,10 +323,9 @@ class SequenceData(object):
             self.batch_id = self.batch_id + batch_size - len(self.user)
         return batch_user, batch_data, batch_seqlen, batch_label
 
-def run_rnn(trainset, testset, scoreset, trainset_result, testset_result, scoreset_result, label_type='order'):
+def run_rnn(trainset, testset, scoreset, trainset_result, testset_result, scoreset_result, step_file, label_type='order'):
     # rnn parameters
     learning_rate = 0.01
-    #training_iters = 100000000 TODO
     training_iters = 5000000
     batch_size = 128
     display_step = 10
@@ -425,27 +427,10 @@ def run_rnn(trainset, testset, scoreset, trainset_result, testset_result, scores
 
     # launch the graph
     with tf.Session(config=config) as sess:
-        print('> Start training...')
         sess.run(init)
         step = 1
-        # keep training until reach max iterations
-        while step * batch_size < training_iters:
-            batch_user, batch_x, batch_seqlen, batch_y = trainset.next(batch_size)
-            # run optimization op (backprop)
-            sess.run(optimizer, feed_dict={x: batch_x, y: batch_y, seqlen: batch_seqlen})
-            if step % display_step == 0:
-                # calculate batch accuracy
-                acc = sess.run(accuracy, feed_dict={x: batch_x, y: batch_y, seqlen: batch_seqlen})
-                # calculate batch loss
-                loss = sess.run(cost, feed_dict={x: batch_x, y: batch_y, seqlen: batch_seqlen})
-                print("Iter " + str(step*batch_size) + ", Minibatch Loss= " + \
-                      "{:.6f}".format(loss) + ", Training Accuracy= " + \
-                      "{:.5f}".format(acc))
-            step += 1
-        print("Optimization Finished!")
 
-        # save result
-        def save_result(dataset, save_file, batch_size=batch_size):
+        def cal_scores(dataset, batch_size):
             # create an empty list to contain output
             res = []
             # separate dataset to partitions, to avoid the out-of-memory issue
@@ -465,12 +450,61 @@ def run_rnn(trainset, testset, scoreset, trainset_result, testset_result, scores
                 if user_id not in user_set:
                     uniq_res.append(i)
                 user_set.add(user_id)
-            # dump to pickle
-            dump_pickle(uniq_res, save_file)
+            return uniq_res
 
-        save_result(trainset, trainset_result, batch_size)
-        save_result(testset, testset_result, batch_size)
-        save_result(scoreset, scoreset_result, batch_size)
+        print('> Start training...')
+        # keep training until reach max iterations
+        step_result = []
+        while step * batch_size < training_iters:
+            batch_user, batch_x, batch_seqlen, batch_y = trainset.next(batch_size)
+            # run optimization op (backprop)
+            sess.run(optimizer, feed_dict={x: batch_x, y: batch_y, seqlen: batch_seqlen})
+            if step % display_step == 0:
+                # calculate auc
+                def cal_auc(score_list, label_type):
+                    def get_sku_ind(rec):
+                        sku_ind_list  = rec[1]
+                        sku_prob_list = rec[2].tolist()
+                        max_ind_index  = sku_ind_list.index(max(sku_ind_list))
+                        max_prob_index = sku_prob_list.index(max(sku_prob_list))
+                        if max_ind_index == max_prob_index:
+                            return 1
+                        else:
+                            return 0
+
+                    if label_type == 'order':
+                        ind  = [i[1][0] for i in score_list]
+                        prob = [i[2][0] for i in score_list]
+                    else:
+                        ind  = [get_sku_ind(i)     for i in score_list]
+                        prob = [max(i[2].tolist()) for i in score_list]
+                    fpr, tpr, thres = roc_curve(ind, prob, pos_label=1)
+                    return auc(fpr, tpr)
+                train_auc = cal_auc(cal_scores(trainset, batch_size), label_type=label_type)
+                test_auc  = cal_auc(cal_scores(testset,  batch_size), label_type=label_type)
+
+                # calculate batch accuracy
+                acc = sess.run(accuracy, feed_dict={x: batch_x, y: batch_y, seqlen: batch_seqlen})
+                # calculate batch loss
+                loss = sess.run(cost, feed_dict={x: batch_x, y: batch_y, seqlen: batch_seqlen})
+                print( \
+                    "Iter %s, "                % str(step*batch_size) + \
+                    "Minibatch Loss %.5f, "    % loss + \
+                    "Training Accuracy %.5f, " % acc + \
+                    "Training AUC %.5f, "      % train_auc + \
+                    "Test AUC %.5f"            % test_auc \
+                )
+                # save step result
+                step_result.append((step*batch_size, train_auc, test_auc))
+            step += 1
+        print("Optimization Finished!")
+        # TODO calculate optimal iteration numbers using step_result
+
+        # save result
+        dump_pickle(step_result, step_file)
+        dump_pickle(cal_scores(trainset, batch_size), trainset_result)
+        dump_pickle(cal_scores(testset,  batch_size), testset_result)
+        dump_pickle(cal_scores(scoreset, batch_size), scoreset_result)
 
 def get_fake_labels(score_sequence, train_labels, save_file):
     fake_label = train_labels[0][1:]
@@ -641,18 +675,18 @@ if __name__ == '__main__':
     #trainset = SequenceData(load_pickle(TRAINSET), label_type='order')
     #testset  = SequenceData(load_pickle(TESTSET),  label_type='order')
     #scoreset = SequenceData(load_pickle(SCORESET), label_type='order')
-    #run_rnn(trainset, testset, scoreset, TRAINSET_USER_RESULT, TESTSET_USER_RESULT, SCORESET_USER_RESULT, label_type='order') # 174min for 5000000 iters
+    #run_rnn(trainset, testset, scoreset, TRAINSET_USER_RESULT, TESTSET_USER_RESULT, SCORESET_USER_RESULT, USER_STEP_RESULT, label_type='order') # 174min for 5000000 iters
 
     # ---------- train, test & score at sku level ---------- #
     ## select users who have orders and the ordered sku_id is in sku list
     #trainset = [i for i in load_pickle(TRAINSET) if sum(i[1][3]) > 0]
-    #testset  = [i for i in load_pickle(TESTSET)]
+    #testset  = [i for i in load_pickle(TESTSET)  if sum(i[1][3]) > 0]
     #scoreset = [i for i in load_pickle(SCORESET)]
     ## create objects
     #trainset = SequenceData(trainset, label_type='sku')
     #testset  = SequenceData(testset,  label_type='sku')
     #scoreset = SequenceData(scoreset, label_type='sku')
-    #run_rnn(trainset, testset, scoreset, TRAINSET_SKU_RESULT, TESTSET_SKU_RESULT, SCORESET_SKU_RESULT, label_type='sku') # 172min for 5000000 iters
+    #run_rnn(trainset, testset, scoreset, TRAINSET_SKU_RESULT, TESTSET_SKU_RESULT, SCORESET_SKU_RESULT, SKU_STEP_RESULT, label_type='sku') # 172min for 5000000 iters
 
     # ---------- evaluation ---------- #
     #get_result(load_pickle(TRAINSET_USER_RESULT), load_pickle(TRAINSET_SKU_RESULT), SKUS, TRAINSET_RESULT)
