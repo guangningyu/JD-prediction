@@ -571,7 +571,7 @@ def get_result(user_res, sku_res, sku_file, save_file):
                 .sort_values(['order_prob'], ascending=[False])
     dump_pickle(result, save_file)
 
-def eval_result(df):
+def eval_roc(df):
     def plot_roc(prob, ind):
         # params
         lw = 2
@@ -663,7 +663,7 @@ def gen_upload_result(trainset, testset, scoreset, save_file, score_file):
                 .rename(columns={'sku_guess_id': 'sku_id'})
     scoreset.to_csv(save_file, sep=',', index=False, encoding='GBK')
 
-def eval_training_iterations(res_list):
+def eval_auc(res_list):
     df = pd.DataFrame({
         'train_auc': [i[1] for i in res_list],
         'test_auc':  [i[2] for i in res_list]
@@ -673,28 +673,34 @@ def eval_training_iterations(res_list):
     plt.show()
 
 if __name__ == '__main__':
-    # ---------- prepare train+test sequence & labels ---------- #
+    # ---------- Data Preparation ---------- #
+
+    # 1.split time window
     #separate_time_window(MASTER_DATA, MASTER_DATA_X, MASTER_DATA_Y) # 20min
     #get_users(MASTER_DATA_X, USERS) # 2min
     #get_skus(MASTER_DATA_Y, SKUS) # 3min
-    #get_event_sequence(MASTER_DATA_X, TRAIN_SEQUENCE, keep_latest_events=EVENT_LENGTH) # 83min
-    #get_train_labels(USERS, SKUS, MASTER_DATA_Y, TRAIN_LABELS) # 2min
 
-    # ---------- prepare scoring sequence & labels ---------- #
-    #get_event_sequence(MASTER_DATA, SCORE_SEQUENCE, keep_latest_events=EVENT_LENGTH) # 89min
+    # 2.prepare input sequence
+    #get_event_sequence(MASTER_DATA_X, TRAIN_SEQUENCE, keep_latest_events=EVENT_LENGTH) # 83min
+    #get_event_sequence(MASTER_DATA,   SCORE_SEQUENCE, keep_latest_events=EVENT_LENGTH) # 89min
+
+    # 3.prepare labels
+    #get_train_labels(USERS, SKUS, MASTER_DATA_Y, TRAIN_LABELS) # 2min
     #get_fake_labels(load_pickle(SCORE_SEQUENCE), load_pickle(TRAIN_LABELS), SCORE_LABELS) # 1min
 
-    # ---------- prepare trainset, testset & scoreset ---------- #
+    # 4.merge input sequence & labels
     #split_train_test(TRAIN_SEQUENCE, TRAIN_LABELS, TRAINSET, TESTSET, 0.5) # 2.5min
     #get_scoreset(SCORE_SEQUENCE, SCORE_LABELS, SCORESET) # 0.1min
 
-    # ---------- train, test & score at user level ---------- #
+    # ---------- Model Training ---------- #
+
+    # 1.train, test & score at user level
     #trainset = SequenceData(load_pickle(TRAINSET), label_type='order')
     #testset  = SequenceData(load_pickle(TESTSET),  label_type='order')
     #scoreset = SequenceData(load_pickle(SCORESET), label_type='order')
     #run_rnn(trainset, testset, scoreset, TRAINSET_USER_RESULT, TESTSET_USER_RESULT, SCORESET_USER_RESULT, USER_STEP_RESULT, training_iters=5000000, label_type='order') # 590min for 5000000 iters
 
-    # ---------- train, test & score at sku level ---------- #
+    # 2.train, test & score at sku level
     ## select users who have orders and the ordered sku_id is in sku list
     #trainset = [i for i in load_pickle(TRAINSET) if sum(i[1][3]) > 0]
     #testset  = [i for i in load_pickle(TESTSET)  if sum(i[1][3]) > 0]
@@ -705,19 +711,24 @@ if __name__ == '__main__':
     #scoreset = SequenceData(scoreset, label_type='sku')
     #run_rnn(trainset, testset, scoreset, TRAINSET_SKU_RESULT, TESTSET_SKU_RESULT, SCORESET_SKU_RESULT, SKU_STEP_RESULT, training_iters=210000, label_type='sku') # 217min for 5000000 iters
 
-    # ---------- evaluation ---------- #
-    #eval_training_iterations(load_pickle(USER_STEP_RESULT))
-    #eval_training_iterations(load_pickle(SKU_STEP_RESULT))
+    # ---------- Model Evaluation ---------- #
 
+    # 1.Merge user level & sku level result
     #get_result(load_pickle(TRAINSET_USER_RESULT), load_pickle(TRAINSET_SKU_RESULT), SKUS, TRAINSET_RESULT)
     #get_result(load_pickle(TESTSET_USER_RESULT), load_pickle(TESTSET_SKU_RESULT), SKUS, TESTSET_RESULT)
     #get_result(load_pickle(SCORESET_USER_RESULT), load_pickle(SCORESET_SKU_RESULT), SKUS, SCORESET_RESULT)
 
-    #eval_result(load_pickle(TRAINSET_RESULT))
-    #eval_result(load_pickle(TESTSET_RESULT))
+    # 2.Check train & test auc for each step
+    #eval_auc(load_pickle(USER_STEP_RESULT))
+    #eval_auc(load_pickle(SKU_STEP_RESULT))
 
+    # 3.Check final roc curve
+    #eval_roc(load_pickle(TRAINSET_RESULT))
+    #eval_roc(load_pickle(TESTSET_RESULT))
+
+    # 4.Select cutoff and generate upload file
     #gen_upload_result(load_pickle(TRAINSET_RESULT), load_pickle(TESTSET_RESULT), load_pickle(SCORESET_RESULT), OUTPUT_FILE, SCORE_FILE)
 
-    # ---------- no longer needed ---------- #
+    # ---------- No Longer Needed ---------- #
     #count_order_num_per_user(MASTER_DATA_Y) # 0.1min
 
