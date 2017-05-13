@@ -51,6 +51,8 @@ OUTPUT_FILE = os.path.join(TEMP_DIR, 'upload.csv')
 USER_STEP_RESULT = os.path.join(TEMP_DIR, 'user_step_result.pkl')
 SKU_STEP_RESULT = os.path.join(TEMP_DIR, 'sku_step_result.pkl')
 
+PROF_ACTION_NUM = os.path.join(TEMP_DIR, 'prof_action_num.csv')
+
 # ---------- constants ---------- #
 EVENT_LENGTH = 500
 
@@ -142,16 +144,43 @@ def get_train_labels(user_file, sku_file, master_file, outfile):
     with open(outfile, 'wb') as handle:
         pickle.dump(labels, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-def count_order_num_per_user(infile):
-    df = pd.read_csv(infile, sep=',', header=0, encoding='utf-8')
-    df = df[(df['category']==8) & (df['type']==4)]
-    df = df[['user_id']] \
-        .groupby('user_id') \
-        .size() \
-        .to_frame(name = 'count') \
-        .reset_index() \
-        .sort_values(['count'], ascending=[False])
-    print df
+def count_order_num_per_user(x_file, y_file, out_file):
+    # count number of previous actions per user before target window
+    df1 = pd.read_csv(x_file, sep=',', header=0, encoding='utf-8')
+    df1 = df1[['user_id']] \
+            .groupby('user_id') \
+            .size() \
+            .to_frame(name = 'count_action') \
+            .reset_index() \
+            .sort_values(['count_action'], ascending=[False])
+
+    # count number of orders per user in target window
+    df2 = pd.read_csv(y_file, sep=',', header=0, encoding='utf-8')
+    df2 = df2[(df2['category']==8) & (df2['type']==4)]
+    df2 = df2[['user_id']] \
+            .groupby('user_id') \
+            .size() \
+            .to_frame(name = 'count_order') \
+            .reset_index() \
+            .sort_values(['count_order'], ascending=[False])
+
+    # count number of previous actions (within 4 weeks) per user before target window
+    start_dt = datetime.date(2016,3,12)
+    df_temp = pd.read_csv(x_file, sep=',', header=0, encoding='utf-8')
+    df_temp['date'] = pd.to_datetime(df_temp['date'], errors='coerce')
+    df3 = df_temp[(df_temp['date'] >= start_dt)]
+    df3 = df3[['user_id']] \
+            .groupby('user_id') \
+            .size() \
+            .to_frame(name = 'count_action_28') \
+            .reset_index() \
+            .sort_values(['count_action_28'], ascending=[False])
+
+    # merge and save
+    df = df1.merge(df2, how='left', on='user_id') \
+            .merge(df3, how='left', on='user_id') \
+            .sort_values(['count_order', 'count_action_28'], ascending=[False, True])
+    df.to_csv(out_file, sep=',', index=False, encoding='utf-8')
 
 def get_event_sequence(infile, outfile, keep_latest_events=200):
     '''
@@ -673,6 +702,7 @@ def eval_auc(res_list):
     plt.show()
 
 if __name__ == '__main__':
+
     # ---------- Data Preparation ---------- #
 
     # 1.split time window
@@ -730,5 +760,5 @@ if __name__ == '__main__':
     #gen_upload_result(load_pickle(TRAINSET_RESULT), load_pickle(TESTSET_RESULT), load_pickle(SCORESET_RESULT), OUTPUT_FILE, SCORE_FILE)
 
     # ---------- No Longer Needed ---------- #
-    #count_order_num_per_user(MASTER_DATA_Y) # 0.1min
+    #count_order_num_per_user(MASTER_DATA_X, MASTER_DATA_Y, PROF_ACTION_NUM) # 5min
 
