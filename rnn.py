@@ -323,12 +323,11 @@ class SequenceData(object):
             self.batch_id = self.batch_id + batch_size - len(self.user)
         return batch_user, batch_data, batch_seqlen, batch_label
 
-def run_rnn(trainset, testset, scoreset, trainset_result, testset_result, scoreset_result, step_file, label_type='order'):
+def run_rnn(trainset, testset, scoreset, trainset_result, testset_result, scoreset_result, step_file, training_iters=5000000, label_type='order'):
     # rnn parameters
     learning_rate = 0.01
-    training_iters = 5000000
     batch_size = 128
-    display_step = 10
+    display_step = 100
     n_hidden = 64 # hidden layer num of features
 
     # model parameters
@@ -655,6 +654,15 @@ def gen_upload_result(trainset, testset, scoreset, save_file, score_file):
                 .rename(columns={'sku_guess_id': 'sku_id'})
     scoreset.to_csv(save_file, sep=',', index=False, encoding='GBK')
 
+def eval_training_iterations(res_list):
+    df = pd.DataFrame({
+        'train_auc': [i[1] for i in res_list],
+        'test_auc':  [i[2] for i in res_list]
+    }, index=[i[0] for i in res_list])
+    df.plot(ylim=(0,1))
+    df.head(30).plot(ylim=(0,1))
+    plt.show()
+
 if __name__ == '__main__':
     # ---------- prepare train+test sequence & labels ---------- #
     #separate_time_window(MASTER_DATA, MASTER_DATA_X, MASTER_DATA_Y) # 20min
@@ -675,7 +683,7 @@ if __name__ == '__main__':
     #trainset = SequenceData(load_pickle(TRAINSET), label_type='order')
     #testset  = SequenceData(load_pickle(TESTSET),  label_type='order')
     #scoreset = SequenceData(load_pickle(SCORESET), label_type='order')
-    #run_rnn(trainset, testset, scoreset, TRAINSET_USER_RESULT, TESTSET_USER_RESULT, SCORESET_USER_RESULT, USER_STEP_RESULT, label_type='order') # 174min for 5000000 iters
+    #run_rnn(trainset, testset, scoreset, TRAINSET_USER_RESULT, TESTSET_USER_RESULT, SCORESET_USER_RESULT, USER_STEP_RESULT, training_iters=5000000, label_type='order') # 590min for 5000000 iters
 
     # ---------- train, test & score at sku level ---------- #
     ## select users who have orders and the ordered sku_id is in sku list
@@ -686,9 +694,12 @@ if __name__ == '__main__':
     #trainset = SequenceData(trainset, label_type='sku')
     #testset  = SequenceData(testset,  label_type='sku')
     #scoreset = SequenceData(scoreset, label_type='sku')
-    #run_rnn(trainset, testset, scoreset, TRAINSET_SKU_RESULT, TESTSET_SKU_RESULT, SCORESET_SKU_RESULT, SKU_STEP_RESULT, label_type='sku') # 172min for 5000000 iters
+    #run_rnn(trainset, testset, scoreset, TRAINSET_SKU_RESULT, TESTSET_SKU_RESULT, SCORESET_SKU_RESULT, SKU_STEP_RESULT, training_iters=210000, label_type='sku') # 217min for 5000000 iters
 
     # ---------- evaluation ---------- #
+    #eval_training_iterations(load_pickle(USER_STEP_RESULT))
+    #eval_training_iterations(load_pickle(SKU_STEP_RESULT))
+
     #get_result(load_pickle(TRAINSET_USER_RESULT), load_pickle(TRAINSET_SKU_RESULT), SKUS, TRAINSET_RESULT)
     #get_result(load_pickle(TESTSET_USER_RESULT), load_pickle(TESTSET_SKU_RESULT), SKUS, TESTSET_RESULT)
     #get_result(load_pickle(SCORESET_USER_RESULT), load_pickle(SCORESET_SKU_RESULT), SKUS, SCORESET_RESULT)
