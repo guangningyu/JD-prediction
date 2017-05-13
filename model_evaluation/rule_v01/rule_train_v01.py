@@ -4,7 +4,7 @@
 # @Date:   2016-05-30 15:31:15
 # @Last Modified by:   shu.wen
 # @Last Modified time: 2017-05-12 00:37:06
-
+# 训练数据 /root/data/rule/RULE_USER_CATE_ACTION_MST_TBL_v4.csv
 __author__ = 'shu.wen'
 
 import os
