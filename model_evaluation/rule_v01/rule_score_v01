@@ -3,8 +3,8 @@
 # @Author: shu.wen
 # @Date:   2016-05-30 15:31:15
 # @Last Modified by:   shu.wen
-# @Last  Modified time: 2017-05-12 00:37:06
-
+# @Last Modified time: 2017-05-12 00:37:06
+# 打分数据  /root/data/rule/RULE_USER_CATE_ACTION_SCORE_TBL.csv
 __author__ = 'shu.wen'
 
 import os
