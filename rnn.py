@@ -278,6 +278,8 @@ def split_train_test(data_pkl, labels_pkl, trainset, testset, train_rate=0.7):
     # print info
     print '> %s users in trainset' % len(rows[:cut_point])
     print '> %s users in testset'  % len(rows[cut_point:])
+    print '> sample record:'
+    print rows[:cut_point][0]
 
 class SequenceData(object):
     """ Generate sequence of data with dynamic length.
@@ -324,6 +326,11 @@ class SequenceData(object):
         return batch_user, batch_data, batch_seqlen, batch_label
 
 def run_rnn(trainset, testset, scoreset, trainset_result, testset_result, scoreset_result, step_file, training_iters=5000000, label_type='order'):
+    # count input
+    print '> %s records in trainset' % len(trainset.data)
+    print '> %s records in testset'  % len(testset.data)
+    print '> %s records in scoreset' % len(scoreset.data)
+
     # rnn parameters
     learning_rate = 0.01
     batch_size = 128
@@ -514,6 +521,8 @@ def get_scoreset(score_sequence, score_labels, scoreset):
     rows = zip(load_pickle(score_sequence), load_pickle(score_labels))
     dump_pickle(rows, scoreset)
     print '> %s users in scoreset'  % len(rows)
+    print '> sample record:'
+    print rows[0]
 
 def get_result(user_res, sku_res, sku_file, save_file):
     # format user level result
