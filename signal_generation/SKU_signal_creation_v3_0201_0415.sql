@@ -1978,9 +1978,9 @@ group by SKU_ID, USER_ID
 group by SKU_ID;
 
 select count() from SKU_REPURCHASE_RATE_0201_0415;
--- 27653
+-- 28542
 select count() from SKU_REPURCHASE_RATE_0201_0415 where SKU_REPURCHASE_RATE > 0;
--- 527
+-- 578
 
 
 
@@ -2004,7 +2004,7 @@ group by BRAND, USER_ID
 group by BRAND;
 
 select count() from BRAND_REPURCHASE_RATE_0201_0415;
--- 433
+-- 440
 
 select count() from BRAND_REPURCHASE_RATE_0201_0415 where BRAND_REPURCHASE_RATE > 0;
 -- 135
@@ -2073,7 +2073,7 @@ where time <= DATE('2016-04-15')
 group by SKU_ID;
 
 select count() from SKU_USER_INFO_0201_0415;
--- 27653
+-- 28542
 
 
 
@@ -2111,7 +2111,7 @@ where time <= DATE('2016-04-15')
 group by BRAND;
 
 select count() from BRAND_USER_INFO_0201_0415;
--- 433
+-- 440
 
 
 
@@ -2203,5 +2203,5 @@ on A.SKU_ID = L.SKU_ID;
 
 
 select count() from SKU_MASTER_0201_0415;
--- 27653
+-- 28542
 
