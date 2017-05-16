@@ -20,13 +20,18 @@ TEMP_DIR = os.path.join(MAIN_DIR, 'temp')
 
 # ---------- file definition ---------- #
 MASTER_DATA = os.path.join(TEMP_DIR, 'master.csv')
+
 MASTER_DATA_X = os.path.join(TEMP_DIR, 'master_x.csv')
 MASTER_DATA_Y = os.path.join(TEMP_DIR, 'master_y.csv')
 SKUS = os.path.join(TEMP_DIR, 'sku_list.csv')
 USERS = os.path.join(TEMP_DIR, 'user_list.csv')
+BRANDS = os.path.join(TEMP_DIR, 'brand_list.csv')
+MODEL_IDS = os.path.join(TEMP_DIR, 'model_id_list.csv')
+
 TRAIN_SEQUENCE = os.path.join(TEMP_DIR, 'train_sequence.pkl')
-TRAIN_LABELS = os.path.join(TEMP_DIR, 'train_labels.pkl')
 SCORE_SEQUENCE = os.path.join(TEMP_DIR, 'score_sequence.pkl')
+
+TRAIN_LABELS = os.path.join(TEMP_DIR, 'train_labels.pkl')
 SCORE_LABELS = os.path.join(TEMP_DIR, 'score_labels.pkl')
 
 TRAINSET = os.path.join(TEMP_DIR, 'trainset.pkl')
@@ -51,8 +56,12 @@ OUTPUT_FILE = os.path.join(TEMP_DIR, 'upload.csv')
 USER_STEP_RESULT = os.path.join(TEMP_DIR, 'user_step_result.pkl')
 SKU_STEP_RESULT = os.path.join(TEMP_DIR, 'sku_step_result.pkl')
 
+PROF_ACTION_NUM = os.path.join(TEMP_DIR, 'prof_action_num.csv')
+
 # ---------- constants ---------- #
 EVENT_LENGTH = 500
+TOP_N_SKU = 100
+TOP_N_BRAND = 20
 
 # ---------- prepare training data ---------- #
 def dump_pickle(dataset, save_file):
@@ -63,6 +72,9 @@ def load_pickle(save_file):
     with open(save_file, 'rb') as handle:
         data = pickle.load(handle)
     return data
+
+def load_csv(save_file):
+    return pd.read_csv(save_file, sep=',', header=0, encoding='utf-8')
 
 def separate_time_window(infile, outfile_x, outfile_y):
     # set time window
@@ -81,7 +93,7 @@ def separate_time_window(infile, outfile_x, outfile_y):
     y.to_csv(outfile_y, sep=',', index=False, encoding='utf-8')
 
 def get_skus(infile, outfile):
-    # keep top 100 popular sku
+    # keep top TOP_N_SKU popular sku
     df = pd.read_csv(infile, sep=',', header=0, encoding='utf-8')
     df = df[(df['category']==8) & (df['type']==4)]
     df = df[['sku_id']] \
@@ -90,8 +102,31 @@ def get_skus(infile, outfile):
         .to_frame(name = 'count') \
         .reset_index() \
         .sort_values(['count'], ascending=[False]) \
-        .head(100) \
+        .head(TOP_N_SKU) \
         .sort_values(['sku_id'], ascending=[True])
+    df.to_csv(outfile, sep=',', index=False, encoding='utf-8')
+
+def get_brands(infile, outfile):
+    # keep top TOP_N_BRAND popular brands
+    df = pd.read_csv(infile, sep=',', header=0, encoding='utf-8')
+    df = df[['brand']] \
+        .groupby('brand') \
+        .size() \
+        .to_frame(name = 'count') \
+        .reset_index() \
+        .sort_values(['count'], ascending=[False]) \
+        .head(TOP_N_BRAND) \
+        .sort_values(['brand'], ascending=[True])
+    df.to_csv(outfile, sep=',', index=False, encoding='utf-8')
+
+def get_model_ids(infile, outfile):
+    df = pd.read_csv(infile, sep=',', header=0, encoding='utf-8')
+    df = df[['model_id']] \
+        .groupby('model_id') \
+        .size() \
+        .to_frame(name = 'count') \
+        .reset_index() \
+        .sort_values(['model_id'], ascending=[True])
     df.to_csv(outfile, sep=',', index=False, encoding='utf-8')
 
 def get_users(infile, outfile):
@@ -142,16 +177,43 @@ def get_train_labels(user_file, sku_file, master_file, outfile):
     with open(outfile, 'wb') as handle:
         pickle.dump(labels, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-def count_order_num_per_user(infile):
-    df = pd.read_csv(infile, sep=',', header=0, encoding='utf-8')
-    df = df[(df['category']==8) & (df['type']==4)]
-    df = df[['user_id']] \
-        .groupby('user_id') \
-        .size() \
-        .to_frame(name = 'count') \
-        .reset_index() \
-        .sort_values(['count'], ascending=[False])
-    print df
+def count_order_num_per_user(x_file, y_file, out_file):
+    # count number of previous actions per user before target window
+    df1 = pd.read_csv(x_file, sep=',', header=0, encoding='utf-8')
+    df1 = df1[['user_id']] \
+            .groupby('user_id') \
+            .size() \
+            .to_frame(name = 'count_action') \
+            .reset_index() \
+            .sort_values(['count_action'], ascending=[False])
+
+    # count number of orders per user in target window
+    df2 = pd.read_csv(y_file, sep=',', header=0, encoding='utf-8')
+    df2 = df2[(df2['category']==8) & (df2['type']==4)]
+    df2 = df2[['user_id']] \
+            .groupby('user_id') \
+            .size() \
+            .to_frame(name = 'count_order') \
+            .reset_index() \
+            .sort_values(['count_order'], ascending=[False])
+
+    # count number of previous actions (within 4 weeks) per user before target window
+    start_dt = datetime.date(2016,3,12)
+    df_temp = pd.read_csv(x_file, sep=',', header=0, encoding='utf-8')
+    df_temp['date'] = pd.to_datetime(df_temp['date'], errors='coerce')
+    df3 = df_temp[(df_temp['date'] >= start_dt)]
+    df3 = df3[['user_id']] \
+            .groupby('user_id') \
+            .size() \
+            .to_frame(name = 'count_action_28') \
+            .reset_index() \
+            .sort_values(['count_action_28'], ascending=[False])
+
+    # merge and save
+    df = df1.merge(df2, how='left', on='user_id') \
+            .merge(df3, how='left', on='user_id') \
+            .sort_values(['count_order', 'count_action_28'], ascending=[False, True])
+    df.to_csv(out_file, sep=',', index=False, encoding='utf-8')
 
 def get_event_sequence(infile, outfile, keep_latest_events=200):
     '''
@@ -289,7 +351,7 @@ class SequenceData(object):
     dimensions). The dynamic calculation will then be perform thanks to
     'seqlen' attribute that records every actual sequence length.
     """
-    def __init__(self, dataset, label_type='order'):
+    def __init__(self, dataset, sku_df, brand_df, label_type='order'):
         self.user   = [data[0] for (data, label) in dataset]
         self.data   = [data[1] for (data, label) in dataset]
         self.seqlen = [data[2] for (data, label) in dataset]
@@ -297,8 +359,60 @@ class SequenceData(object):
         self.order_label = [label[1] for (data, label) in dataset]
         self.sku_label   = [label[3] for (data, label) in dataset]
 
+        self.sku_list   = sku_df['sku_id'].values.tolist()
+        self.brand_list = brand_df['brand'].values.tolist()
+
         self.label_type = label_type
         self.batch_id = 0
+
+        # get dataset stats
+        u, d, s, l = self.next(1)
+        self.length    = len(self.user)
+        self.n_steps   = len(d[0])
+        self.n_input   = len(d[0][0])
+        self.n_classes = len(l[0])
+        self.batch_id -= 1
+
+    def transform_seq(self, seq):
+        '''
+        input shape: n_steps * n_input
+        '''
+        def norm_by_value(value, max_value):
+            return [1.0 * value / max_value]
+
+        def one_hot_encoding(value, value_list):
+            default_list = [0] * (len(value_list) + 1)
+            if value in value_list:
+                default_list[value_list.index(value)] = 1
+            else:
+                # the last cell stands for other values
+                default_list[-1] = 1
+            return default_list
+
+        def process_model_id(model_id):
+            if model_id == -1:
+                return -2
+            elif model_id == 0:
+                return -1
+            else:
+                return int(math.floor(1.0 * model_id / 100))
+
+        seq_list = []
+        for rec in seq:
+            sku_id     = one_hot_encoding(int(rec[0]), self.sku_list)
+            model_id   = one_hot_encoding(process_model_id(rec[1]), [-1, 0, 1, 2, 3])
+            type       = one_hot_encoding(int(rec[2]), [1, 2, 3, 4, 5, 6])
+            category   = one_hot_encoding(int(rec[3]), [4, 5, 6, 7, 8, 9])
+            brand      = one_hot_encoding(int(rec[4]), self.brand_list)
+            a1         = one_hot_encoding(int(rec[5]), [-1, 1, 2, 3])
+            a2         = one_hot_encoding(int(rec[6]), [-1, 1, 2])
+            a3         = one_hot_encoding(int(rec[7]), [-1, 1, 2])
+            till_next  = norm_by_value(rec[8], 9999999)
+            till_obs   = norm_by_value(rec[9], 9999999)
+            # norm_rec
+            norm_rec = sku_id + model_id + type + category + brand + a1 + a2 + a3 + till_next + till_obs
+            seq_list.append(norm_rec)
+        return np.array(seq_list)
 
     def next(self, batch_size):
         """ Return a batch of data. When dataset end is reached, start over.
@@ -323,27 +437,29 @@ class SequenceData(object):
             else:
                 batch_label = self.sku_label[self.batch_id:] + self.sku_label[:end_cursor]
             self.batch_id = self.batch_id + batch_size - len(self.user)
+        # do normalization & one-hot-encoding
+        batch_data = [self.transform_seq(seq) for seq in batch_data]
         return batch_user, batch_data, batch_seqlen, batch_label
 
 def run_rnn(trainset, testset, scoreset, trainset_result, testset_result, scoreset_result, step_file, training_iters=5000000, label_type='order'):
-    # count input
-    print '> %s records in trainset' % len(trainset.data)
-    print '> %s records in testset'  % len(testset.data)
-    print '> %s records in scoreset' % len(scoreset.data)
-
     # rnn parameters
     learning_rate = 0.01
     batch_size = 128
     display_step = 100
     n_hidden = 64 # hidden layer num of features
 
+    # count input
+    print '> %s records in trainset' % trainset.length
+    print '> %s records in testset'  % testset.length
+    print '> %s records in scoreset' % scoreset.length
+
     # model parameters
-    n_steps = len(trainset.data[0])
-    n_input = len(trainset.data[0][0])
-    if label_type == 'order':
-        n_classes = len(trainset.order_label[0])
-    else:
-        n_classes = len(trainset.sku_label[0])
+    n_steps   = trainset.n_steps
+    n_input   = trainset.n_input
+    n_classes = trainset.n_classes
+    print 'n_steps:   %s' % n_steps
+    print 'n_input:   %s' % n_input
+    print 'n_classes: %s' % n_classes
 
     # tf Graph input
     x = tf.placeholder("float", [None, n_steps, n_input])
@@ -672,13 +788,16 @@ def eval_auc(res_list):
     df.head(30).plot(ylim=(0,1))
     plt.show()
 
+
 if __name__ == '__main__':
+
     # ---------- Data Preparation ---------- #
 
     # 1.split time window
     #separate_time_window(MASTER_DATA, MASTER_DATA_X, MASTER_DATA_Y) # 20min
     #get_users(MASTER_DATA_X, USERS) # 2min
     #get_skus(MASTER_DATA_Y, SKUS) # 3min
+    #get_brands(MASTER_DATA_Y, BRANDS) # 3min
 
     # 2.prepare input sequence
     #get_event_sequence(MASTER_DATA_X, TRAIN_SEQUENCE, keep_latest_events=EVENT_LENGTH) # 83min
@@ -695,10 +814,14 @@ if __name__ == '__main__':
     # ---------- Model Training ---------- #
 
     # 1.train, test & score at user level
-    #trainset = SequenceData(load_pickle(TRAINSET), label_type='order')
-    #testset  = SequenceData(load_pickle(TESTSET),  label_type='order')
-    #scoreset = SequenceData(load_pickle(SCORESET), label_type='order')
-    #run_rnn(trainset, testset, scoreset, TRAINSET_USER_RESULT, TESTSET_USER_RESULT, SCORESET_USER_RESULT, USER_STEP_RESULT, training_iters=5000000, label_type='order') # 590min for 5000000 iters
+    trainset = load_pickle(TRAINSET)
+    testset  = load_pickle(TESTSET)
+    scoreset = load_pickle(SCORESET)
+    # create objects
+    trainset = SequenceData(trainset, load_csv(SKUS), load_csv(BRANDS), label_type='order')
+    testset  = SequenceData(testset,  load_csv(SKUS), load_csv(BRANDS), label_type='order')
+    scoreset = SequenceData(scoreset, load_csv(SKUS), load_csv(BRANDS), label_type='order')
+    run_rnn(trainset, testset, scoreset, TRAINSET_USER_RESULT, TESTSET_USER_RESULT, SCORESET_USER_RESULT, USER_STEP_RESULT, training_iters=3000000, label_type='order') # 590min for 5000000 iters
 
     # 2.train, test & score at sku level
     ## select users who have orders and the ordered sku_id is in sku list
@@ -706,9 +829,9 @@ if __name__ == '__main__':
     #testset  = [i for i in load_pickle(TESTSET)  if sum(i[1][3]) > 0]
     #scoreset = [i for i in load_pickle(SCORESET)]
     ## create objects
-    #trainset = SequenceData(trainset, label_type='sku')
-    #testset  = SequenceData(testset,  label_type='sku')
-    #scoreset = SequenceData(scoreset, label_type='sku')
+    #trainset = SequenceData(trainset, load_csv(SKUS), load_csv(BRANDS), label_type='sku')
+    #testset  = SequenceData(testset,  load_csv(SKUS), load_csv(BRANDS), label_type='sku')
+    #scoreset = SequenceData(scoreset, load_csv(SKUS), load_csv(BRANDS), label_type='sku')
     #run_rnn(trainset, testset, scoreset, TRAINSET_SKU_RESULT, TESTSET_SKU_RESULT, SCORESET_SKU_RESULT, SKU_STEP_RESULT, training_iters=210000, label_type='sku') # 217min for 5000000 iters
 
     # ---------- Model Evaluation ---------- #
@@ -730,5 +853,6 @@ if __name__ == '__main__':
     #gen_upload_result(load_pickle(TRAINSET_RESULT), load_pickle(TESTSET_RESULT), load_pickle(SCORESET_RESULT), OUTPUT_FILE, SCORE_FILE)
 
     # ---------- No Longer Needed ---------- #
-    #count_order_num_per_user(MASTER_DATA_Y) # 0.1min
+    #count_order_num_per_user(MASTER_DATA_X, MASTER_DATA_Y, PROF_ACTION_NUM) # 5min
+    #get_model_ids(MASTER_DATA_Y, MODEL_IDS) # 3min
 
